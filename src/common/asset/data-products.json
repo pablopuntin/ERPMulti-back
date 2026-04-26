@@ -1,0 +1,50 @@
+[
+  {
+    "name": "SAHUMERIO PREMIUM",
+    "description": "Sahumerios artesanales premium.",
+    "brand": "AROMANZA",
+    "category": "SAHUMERIOS",
+    "variants": [
+      { "name": "Lavanda 250ml", "price": 1200, "stock": 25 },
+      { "name": "Sándalo 500ml", "price": 1500, "stock": 15 }
+    ]
+  },
+  {
+    "name": "BOMBITAS DEFUMACIÓN",
+    "description": "Bombitas naturales purificadoras.",
+    "brand": "SAGRADA MADRE",
+    "category": "DEFUMACION",
+    "variants": [
+      { "name": "Palo Santo", "price": 1100, "stock": 20 },
+      { "name": "Mirra", "price": 1300, "stock": 18 }
+    ]
+  },
+  {
+    "name": "PORTA SAHUMERIOS ARTESANAL",
+    "description": "Portasahumerios hechos a mano.",
+    "brand": "GARDEN FRESH",
+    "category": "PORTASAHUMERIOS",
+    "variants": [
+      { "name": "Cerámica Azul", "price": 2500, "stock": 10 }
+    ]
+  },
+  {
+    "name": "PORTA VELAS CLÁSICO",
+    "description": "Portavelas de diseño rústico.",
+    "brand": "AROMANZA",
+    "category": "PORTAVELAS",
+    "variants": [
+      { "name": "Negro Mate", "price": 1900, "stock": 12 }
+    ]
+  },
+  {
+    "name": "HORNILLO DE CERÁMICA",
+    "description": "Hornillos térmicos para esencias.",
+    "brand": "SAGRADA MADRE",
+    "category": "HORNILLOS",
+    "variants": [
+      { "name": "Blanco", "price": 2800, "stock": 8 },
+      { "name": "Rojo", "price": 2900, "stock": 6 }
+    ]
+  }
+]
