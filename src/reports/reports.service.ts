@@ -98,10 +98,9 @@ export class ReportsService {
         'No tienes acceso a la sucursal solicitada para reportes'
     });
 
-    const income = await this.movementRepo
+    const totals = await this.movementRepo
       .createQueryBuilder('m')
-      .leftJoin('m.register', 'register')
-      .where('m.type = :type', { type: CashMovementType.INCOME })
+      .innerJoin('m.register', 'register')
       .andWhere('m.createdAt BETWEEN :from AND :to', {
         from: fromDate,
         to: toDate
@@ -110,26 +109,22 @@ export class ReportsService {
         resolvedBranchId ? 'register.branchId = :branchId' : '1=1',
         resolvedBranchId ? { branchId: resolvedBranchId } : {}
       )
-      .select('SUM(m.amount)', 'total')
-      .getRawOne();
-
-    const expense = await this.movementRepo
-      .createQueryBuilder('m')
-      .leftJoin('m.register', 'register')
-      .where('m.type = :type', { type: CashMovementType.EXPENSE })
-      .andWhere('m.createdAt BETWEEN :from AND :to', {
-        from: fromDate,
-        to: toDate
-      })
-      .andWhere(
-        resolvedBranchId ? 'register.branchId = :branchId' : '1=1',
-        resolvedBranchId ? { branchId: resolvedBranchId } : {}
+      .select(
+        `COALESCE(SUM(CASE WHEN m.type = :incomeType THEN m.amount ELSE 0 END), 0)`,
+        'totalIncome'
       )
-      .select('SUM(m.amount)', 'total')
+      .addSelect(
+        `COALESCE(SUM(CASE WHEN m.type = :expenseType THEN m.amount ELSE 0 END), 0)`,
+        'totalExpense'
+      )
+      .setParameters({
+        incomeType: CashMovementType.INCOME,
+        expenseType: CashMovementType.EXPENSE
+      })
       .getRawOne();
 
-    const totalIncome = Number(income?.total || 0);
-    const totalExpense = Number(expense?.total || 0);
+    const totalIncome = Number(totals?.totalIncome || 0);
+    const totalExpense = Number(totals?.totalExpense || 0);
     const balance = totalIncome - totalExpense;
 
     return {
