@@ -42,4 +42,9 @@ export class ListProductVariantsDto {
   @IsOptional()
   @IsUUID()
   variantId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUUID()
+  branchId?: string;
 }

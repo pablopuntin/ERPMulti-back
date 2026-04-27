@@ -13,11 +13,13 @@ import * as XLSX from 'xlsx';
 import { ProductsBase } from './entities/products-base.entity';
 import { Brand } from 'src/brands/entities/brand.entity';
 import { ProductVariant } from 'src/products-variants/entities/products-variant.entity';
+import { ProductVariantBranch } from 'src/products-variants/entities/product-variant-branch.entity';
 import { StockLocation } from 'src/branches/entities/stock-location.entity';
 import { StockLocationType } from 'src/branches/entities/stock-location.entity';
 import { Branch } from 'src/branches/entities/branch.entity';
 import { Category } from 'src/categories/entities/category.entity';
 import { PreviewProductsImportDto } from './dto/preview-products-import.dto';
+import { resolveBranchScope, type BranchScopedUser } from 'src/common/auth/branch-scope.util';
 
 @Injectable()
 export class ProductsBaseService {
@@ -36,12 +38,78 @@ export class ProductsBaseService {
     @InjectRepository(ProductVariant)
     private readonly variantsRepository: Repository<ProductVariant>,
 
+    @InjectRepository(ProductVariantBranch)
+    private readonly variantBranchRepository: Repository<ProductVariantBranch>,
+
     @InjectRepository(StockLocation)
     private readonly stockLocationRepository: Repository<StockLocation>,
 
     @InjectRepository(Branch)
     private readonly branchesRepository: Repository<Branch>
   ) {}
+
+  private resolveOperationalBranchId(
+    userScope: BranchScopedUser,
+    requestedBranchId?: string
+  ): string {
+    const resolvedBranchId = resolveBranchScope(userScope, {
+      requestedBranchId,
+      allowGlobal: false,
+      missingActiveBranchMessage:
+        'No hay una sucursal activa definida para operar productos',
+      forbiddenMessage:
+        'No tienes acceso a la sucursal seleccionada para productos'
+    });
+
+    if (!resolvedBranchId) {
+      throw new BadRequestException(
+        'No hay una sucursal activa definida para operar productos'
+      );
+    }
+
+    return resolvedBranchId;
+  }
+
+  private async ensureVariantAssignment(
+    variant: ProductVariant,
+    branchId: string,
+    branch?: Branch | null,
+    repo: Repository<ProductVariantBranch> = this.variantBranchRepository
+  ) {
+    const resolvedBranch = branch
+      ?? (await this.branchesRepository.findOne({
+        where: { id: branchId, isActive: true }
+      }));
+
+    if (!resolvedBranch) {
+      throw new BadRequestException('La sucursal activa no existe o está inactiva');
+    }
+
+    const existingAssignment = await repo.findOne({
+      where: {
+        variantId: variant.id,
+        branchId: resolvedBranch.id
+      }
+    });
+
+    if (existingAssignment) {
+      if (!existingAssignment.isActive) {
+        existingAssignment.isActive = true;
+        await repo.save(existingAssignment);
+      }
+      return existingAssignment;
+    }
+
+    const createdAssignment = repo.create({
+      variantId: variant.id,
+      branchId: resolvedBranch.id,
+      isActive: true,
+      variant,
+      branch: resolvedBranch
+    });
+
+    return repo.save(createdAssignment);
+  }
 
   private normalizeImportText(value?: string | null) {
     return value?.trim().replace(/\s+/g, ' ') || '';
@@ -87,7 +155,7 @@ export class ProductsBaseService {
     return 'branch';
   }
 
-  async previewImportFile(fileBuffer: Buffer) {
+  async previewImportFile(userScope: BranchScopedUser, fileBuffer: Buffer) {
     let workbook: XLSX.WorkBook;
 
     try {
@@ -194,10 +262,10 @@ export class ProductsBaseService {
       )
     }));
 
-    return this.previewImport({ rows: normalizedRows });
+    return this.previewImport(userScope, { rows: normalizedRows });
   }
 
-  async importProductsFile(fileBuffer: Buffer) {
+  async importProductsFile(userScope: BranchScopedUser, fileBuffer: Buffer) {
     let workbook: XLSX.WorkBook;
 
     try {
@@ -304,11 +372,12 @@ export class ProductsBaseService {
       )
     }));
 
-    return this.importProducts({ rows: normalizedRows });
+    return this.importProducts(userScope, { rows: normalizedRows });
   }
 
-  async importProducts(dto: PreviewProductsImportDto) {
-    const preview = await this.previewImport(dto);
+  async importProducts(userScope: BranchScopedUser, dto: PreviewProductsImportDto) {
+    const operationalBranchId = this.resolveOperationalBranchId(userScope);
+    const preview = await this.previewImport(userScope, dto);
 
     if (preview.errors.length > 0) {
       throw new BadRequestException({
@@ -327,6 +396,7 @@ export class ProductsBaseService {
           const brandRepo = manager.getRepository(Brand);
           const productBaseRepo = manager.getRepository(ProductsBase);
           const variantRepo = manager.getRepository(ProductVariant);
+          const variantBranchRepo = manager.getRepository(ProductVariantBranch);
           const stockLocationRepo = manager.getRepository(StockLocation);
           const branchRepo = manager.getRepository(Branch);
 
@@ -334,6 +404,15 @@ export class ProductsBaseService {
           const brandCache = new Map<string, Brand>();
           const productBaseCache = new Map<string, ProductsBase>();
           const branchCache = new Map<string, Branch>();
+          const activeBranch = await branchRepo.findOne({
+            where: { id: operationalBranchId, isActive: true }
+          });
+
+          if (!activeBranch) {
+            throw new BadRequestException(
+              'La sucursal activa no existe o está inactiva para importar productos'
+            );
+          }
 
           let createdCategories = 0;
           let createdBrands = 0;
@@ -521,6 +600,13 @@ export class ProductsBaseService {
               updatedVariants += 1;
             }
 
+            await this.ensureVariantAssignment(
+              variant,
+              activeBranch.id,
+              activeBranch,
+              variantBranchRepo
+            );
+
             if (locationName) {
               let branch: Branch | null = branchCache.get(locationName) ?? null;
               if (!branch) {
@@ -622,7 +708,18 @@ export class ProductsBaseService {
     }
   }
 
-  async previewImport(dto: PreviewProductsImportDto) {
+  async previewImport(userScope: BranchScopedUser, dto: PreviewProductsImportDto) {
+    const operationalBranchId = this.resolveOperationalBranchId(userScope);
+    const activeBranch = await this.branchesRepository.findOne({
+      where: { id: operationalBranchId, isActive: true }
+    });
+
+    if (!activeBranch) {
+      throw new BadRequestException(
+        'La sucursal activa no existe o está inactiva para importar productos'
+      );
+    }
+
     const normalizedRows = dto.rows.map((row, index) => ({
       rowNumber: index + 1,
       categoryName: this.normalizeImportText(row.categoryName),
@@ -745,6 +842,7 @@ export class ProductsBaseService {
       sku: string;
       salePrice: number;
       purchasePrice: number;
+      assignedBranchName: string;
     }> = [];
 
     for (const row of normalizedRows) {
@@ -838,7 +936,8 @@ export class ProductsBaseService {
         variantName: row.variantName,
         sku: row.sku,
         salePrice: row.salePrice,
-        purchasePrice: row.purchasePrice
+        purchasePrice: row.purchasePrice,
+        assignedBranchName: activeBranch.name
       });
     }
 
@@ -851,7 +950,9 @@ export class ProductsBaseService {
         createBrands: toCreateBrandNames.size,
         createProductBases: toCreateProductBaseMap.size,
         createVariants: toCreateVariantMap.size,
-        updateVariants: toUpdate.variants.length
+        updateVariants: toUpdate.variants.length,
+        assignedBranchId: activeBranch.id,
+        assignedBranchName: activeBranch.name
       },
       toCreate: {
         categories: Array.from(toCreateCategoryNames),
@@ -905,6 +1006,7 @@ export class ProductsBaseService {
   // ADD VARIANT - Agregar variante a ProductBase existente
   // ---------------------------------------------------------------------------
   async addVariantToProductBase(
+    userScope: BranchScopedUser,
     productBaseId: string,
     variantData: {
       name: string;
@@ -925,6 +1027,11 @@ export class ProductsBaseService {
     if (!productBase) {
       throw new NotFoundException('Product base not found or inactive');
     }
+
+    const operationalBranchId = this.resolveOperationalBranchId(
+      userScope,
+      variantData.branchId
+    );
 
     // 2️⃣ Generar SKU automático si no se proporciona
     const generatedSku =
@@ -950,10 +1057,11 @@ export class ProductsBaseService {
     });
 
     const savedVariant = await this.variantsRepository.save(newVariant);
+    await this.ensureVariantAssignment(savedVariant, operationalBranchId);
 
     // 4️⃣ Crear StockLocation si se especificó sucursal
     let stockLocation: StockLocation | null = null;
-    if (variantData.branchId) {
+    if (variantData.branchId || variantData.stock > 0) {
       stockLocation = this.stockLocationRepository.create({
         quantity: variantData.stock,
         reservedQuantity: 0,
@@ -963,7 +1071,7 @@ export class ProductsBaseService {
         sku: generatedSku,
         costPrice: variantData.purchasePrice ?? variantData.price * 0.7,
         salePrice: variantData.price,
-        branch: { id: variantData.branchId },
+        branch: { id: operationalBranchId },
         productVariant: { id: savedVariant.id },
         isActive: true
       });
@@ -1146,11 +1254,31 @@ export class ProductsBaseService {
   // ---------------------------------------------------------------------------
   // FIND ALL
   // ---------------------------------------------------------------------------
-  async findAll(includeInactive = false) {
-    return await this.productsBaseRepository.find({
-      where: includeInactive ? {} : { isActive: true },
-      relations: ['brand', 'variants']
-    });
+  async findAll(
+    userScope: BranchScopedUser,
+    includeInactive = false,
+    branchId?: string
+  ) {
+    const resolvedBranchId = this.resolveOperationalBranchId(userScope, branchId);
+
+    const qb = this.productsBaseRepository
+      .createQueryBuilder('productBase')
+      .leftJoinAndSelect('productBase.brand', 'brand')
+      .leftJoinAndSelect('productBase.variants', 'variant')
+      .innerJoin('variant.branchAssignments', 'branchAssignment')
+      .where(includeInactive ? '1=1' : 'productBase.isActive = :isActive', {
+        isActive: true
+      })
+      .andWhere('variant.isActive = :variantActive', { variantActive: true })
+      .andWhere('branchAssignment.branchId = :branchId', {
+        branchId: resolvedBranchId
+      })
+      .andWhere('branchAssignment.isActive = :assignmentActive', {
+        assignmentActive: true
+      })
+      .orderBy('productBase.name', 'ASC');
+
+    return qb.getMany();
   }
 
   // ---------------------------------------------------------------------------
@@ -1264,6 +1392,7 @@ export class ProductsBaseService {
   // ADD VARIANT WITH STOCKS - Nueva versión con múltiples stocks
   // ---------------------------------------------------------------------------
   async addVariantWithStocks(
+    userScope: BranchScopedUser,
     productBaseId: string,
     dto: AddVariantWithStocksDto
   ) {
@@ -1276,6 +1405,8 @@ export class ProductsBaseService {
     if (!productBase) {
       throw new NotFoundException('Product base not found or inactive');
     }
+
+    const operationalBranchId = this.resolveOperationalBranchId(userScope);
 
     // 2️⃣ Generar SKU automático si no se proporciona
     const generatedSku =
@@ -1299,6 +1430,7 @@ export class ProductsBaseService {
     });
 
     const savedVariant = await this.variantsRepository.save(newVariant);
+    await this.ensureVariantAssignment(savedVariant, operationalBranchId);
 
     // 4️⃣ Crear múltiples StockLocation
     const stockLocations: StockLocation[] = [];
@@ -1309,6 +1441,10 @@ export class ProductsBaseService {
         throw new BadRequestException(
           `Branch ID is required for branch location type`
         );
+      }
+
+      if (stockData.branchId) {
+        await this.ensureVariantAssignment(savedVariant, stockData.branchId);
       }
 
       const stockLocation = this.stockLocationRepository.create({

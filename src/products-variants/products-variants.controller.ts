@@ -7,7 +7,8 @@ import {
   Param,
   Delete,
   Query,
-  UseGuards
+  UseGuards,
+  Req
 } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { ProductsVariantsService } from './products-variants.service';
@@ -19,6 +20,7 @@ import { UpdateProductsVariantDto } from './dto/update-products-variant.dto';
 import { AuthGuard } from '@nestjs/passport';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { RolesGuard } from '../auth/guards/roles.guard';
+import type { Request } from 'express';
 
 @ApiTags('Product Variants')
 @UseGuards(AuthGuard('jwt'), RolesGuard)
@@ -29,8 +31,8 @@ export class ProductsVariantsController {
 
   @Post()
   @ApiOperation({ summary: 'Crear una nueva variante de producto' })
-  create(@Body() dto: CreateProductVariantDto) {
-    return this.variantsService.create(dto);
+  create(@Req() req: Request, @Body() dto: CreateProductVariantDto) {
+    return this.variantsService.create(req.user as any, dto);
   }
 
   @Get()
@@ -43,8 +45,8 @@ export class ProductsVariantsController {
   @ApiOperation({
     summary: 'Listar variantes de productos de forma paginada para catálogo'
   })
-  findCatalog(@Query() query: ListProductVariantsDto) {
-    return this.variantsService.findCatalog(query);
+  findCatalog(@Req() req: Request, @Query() query: ListProductVariantsDto) {
+    return this.variantsService.findCatalog(req.user as any, query);
   }
 
   @Get(':id')

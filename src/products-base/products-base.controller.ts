@@ -11,7 +11,9 @@ import {
   ParseUUIDPipe,
   UploadedFile,
   UseInterceptors,
-  BadRequestException
+  BadRequestException,
+  Req,
+  Query
 } from '@nestjs/common';
 import { AuthSwagger } from 'src/auth/decorators/auth-swagger.decorator';
 import { ApiBody, ApiConsumes, ApiOperation } from '@nestjs/swagger';
@@ -23,6 +25,7 @@ import { UpdateProductsBaseDto } from './dto/update-products-base.dto';
 import { AddVariantWithStocksDto } from './dto/add-variant-with-stocks.dto';
 import { PreviewProductsImportDto } from './dto/preview-products-import.dto';
 import { ProductsBaseService } from './products-base.service';
+import type { Request } from 'express';
 
 type UploadedExcelFile = {
   originalname?: string;
@@ -37,8 +40,8 @@ export class ProductsBaseController {
   @Get()
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles('root', 'gerente_general', 'gerente_sucursal', 'vendedor', 'cajero')
-  findAll() {
-    return this.productsBaseService.findAll();
+  findAll(@Req() req: Request, @Query('branchId') branchId?: string) {
+    return this.productsBaseService.findAll(req.user as any, false, branchId);
   }
 
   @ApiOperation({ summary: 'Mostrar productos por id' })
@@ -61,8 +64,8 @@ export class ProductsBaseController {
   @Post('import/preview')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles('root', 'gerente_general')
-  previewImport(@Body() previewProductsImportDto: PreviewProductsImportDto) {
-    return this.productsBaseService.previewImport(previewProductsImportDto);
+  previewImport(@Req() req: Request, @Body() previewProductsImportDto: PreviewProductsImportDto) {
+    return this.productsBaseService.previewImport(req.user as any, previewProductsImportDto);
   }
 
   @ApiOperation({
@@ -85,7 +88,7 @@ export class ProductsBaseController {
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles('root', 'gerente_general')
   @UseInterceptors(FileInterceptor('file'))
-  previewImportFile(@UploadedFile() file: UploadedExcelFile) {
+  previewImportFile(@Req() req: Request, @UploadedFile() file: UploadedExcelFile) {
     if (!file) {
       throw new BadRequestException('Debe adjuntar un archivo Excel');
     }
@@ -95,15 +98,15 @@ export class ProductsBaseController {
       throw new BadRequestException('El archivo debe ser .xlsx o .xls');
     }
 
-    return this.productsBaseService.previewImportFile(file.buffer);
+    return this.productsBaseService.previewImportFile(req.user as any, file.buffer);
   }
 
   @ApiOperation({ summary: 'Importación masiva de productos' })
   @Post('import')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles('root', 'gerente_general')
-  importProducts(@Body() previewProductsImportDto: PreviewProductsImportDto) {
-    return this.productsBaseService.importProducts(previewProductsImportDto);
+  importProducts(@Req() req: Request, @Body() previewProductsImportDto: PreviewProductsImportDto) {
+    return this.productsBaseService.importProducts(req.user as any, previewProductsImportDto);
   }
 
   @ApiOperation({ summary: 'Importación masiva de productos desde Excel' })
@@ -124,7 +127,7 @@ export class ProductsBaseController {
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles('root', 'gerente_general')
   @UseInterceptors(FileInterceptor('file'))
-  importProductsFile(@UploadedFile() file: UploadedExcelFile) {
+  importProductsFile(@Req() req: Request, @UploadedFile() file: UploadedExcelFile) {
     if (!file) {
       throw new BadRequestException('Debe adjuntar un archivo Excel');
     }
@@ -134,7 +137,7 @@ export class ProductsBaseController {
       throw new BadRequestException('El archivo debe ser .xlsx o .xls');
     }
 
-    return this.productsBaseService.importProductsFile(file.buffer);
+    return this.productsBaseService.importProductsFile(req.user as any, file.buffer);
   }
 
   @ApiOperation({
@@ -144,10 +147,12 @@ export class ProductsBaseController {
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles('root', 'gerente_general', 'gerente_sucursal', 'vendedor')
   addVariantWithStocks(
+    @Req() req: Request,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() addVariantWithStocksDto: AddVariantWithStocksDto
   ) {
     return this.productsBaseService.addVariantWithStocks(
+      req.user as any,
       id,
       addVariantWithStocksDto
     );
@@ -160,6 +165,7 @@ export class ProductsBaseController {
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles('root', 'gerente_general', 'gerente_sucursal', 'vendedor')
   addVariant(
+    @Req() req: Request,
     @Param('id', ParseUUIDPipe) id: string,
     @Body()
     variantData: {
@@ -171,7 +177,7 @@ export class ProductsBaseController {
       branchId?: string;
     }
   ) {
-    return this.productsBaseService.addVariantToProductBase(id, variantData);
+    return this.productsBaseService.addVariantToProductBase(req.user as any, id, variantData);
   }
 
   @ApiOperation({ summary: 'Modificar productos' })

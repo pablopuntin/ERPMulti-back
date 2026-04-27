@@ -16,6 +16,8 @@ import { PriceHistoryService } from 'src/price-history/price-history.service';
 import { StockLocation } from 'src/branches/entities/stock-location.entity';
 import { StockLocationType } from 'src/branches/entities/stock-location.entity';
 import { Branch } from 'src/branches/entities/branch.entity';
+import { ProductVariantBranch } from './entities/product-variant-branch.entity';
+import { resolveBranchScope, type BranchScopedUser } from 'src/common/auth/branch-scope.util';
 
 @Injectable()
 export class ProductsVariantsService {
@@ -29,11 +31,74 @@ export class ProductsVariantsService {
     @InjectRepository(StockLocation)
     private readonly stockLocationRepo: Repository<StockLocation>,
 
+    @InjectRepository(ProductVariantBranch)
+    private readonly variantBranchRepo: Repository<ProductVariantBranch>,
+
     @InjectRepository(Branch)
     private readonly branchRepo: Repository<Branch>,
 
     private readonly priceHistoryService: PriceHistoryService
   ) {}
+
+  private resolveOperationalBranchId(
+    userScope: BranchScopedUser,
+    requestedBranchId?: string
+  ) {
+    const resolvedBranchId = resolveBranchScope(userScope, {
+      requestedBranchId,
+      allowGlobal: false,
+      missingActiveBranchMessage:
+        'No hay una sucursal activa definida para operar productos',
+      forbiddenMessage:
+        'No tienes acceso a la sucursal seleccionada para productos'
+    });
+
+    if (!resolvedBranchId) {
+      throw new BadRequestException(
+        'No hay una sucursal activa definida para operar productos'
+      );
+    }
+
+    return resolvedBranchId;
+  }
+
+  private async ensureVariantAssignment(
+    variant: ProductVariant,
+    branchId: string
+  ) {
+    const branch = await this.branchRepo.findOne({
+      where: { id: branchId, isActive: true }
+    });
+
+    if (!branch) {
+      throw new BadRequestException('La sucursal activa no existe o está inactiva');
+    }
+
+    const existingAssignment = await this.variantBranchRepo.findOne({
+      where: {
+        variantId: variant.id,
+        branchId: branch.id
+      }
+    });
+
+    if (existingAssignment) {
+      if (!existingAssignment.isActive) {
+        existingAssignment.isActive = true;
+        await this.variantBranchRepo.save(existingAssignment);
+      }
+      return existingAssignment;
+    }
+
+    const createdAssignment = this.variantBranchRepo.create({
+      variantId: variant.id,
+      branchId: branch.id,
+      isActive: true,
+      variant,
+      branch
+    });
+
+    return this.variantBranchRepo.save(createdAssignment);
+  }
 
   private async syncStockSalePrice(variantId: string, newPrice: number) {
     const stockLocations = await this.stockLocationRepo.find({
@@ -100,6 +165,8 @@ export class ProductsVariantsService {
             `Sucursal inválida para stock: ${branchId}`
           );
         }
+
+        await this.ensureVariantAssignment(variant, branch.id);
       }
 
       const key = this.buildStockKey(branchId, locationType);
@@ -143,11 +210,13 @@ export class ProductsVariantsService {
     }
   }
 
-  async create(dto: CreateProductVariantDto) {
+  async create(userScope: BranchScopedUser, dto: CreateProductVariantDto) {
     const base = await this.baseRepo.findOne({
       where: { id: dto.productBaseId }
     });
     if (!base) throw new NotFoundException('Producto base no encontrado');
+
+    const operationalBranchId = this.resolveOperationalBranchId(userScope);
 
     const variant = this.variantRepo.create({
       ...dto,
@@ -155,7 +224,10 @@ export class ProductsVariantsService {
       productBase: base
     });
 
-    return await this.variantRepo.save(variant);
+    const savedVariant = await this.variantRepo.save(variant);
+    await this.ensureVariantAssignment(savedVariant, operationalBranchId);
+
+    return await this.findOne(savedVariant.id);
   }
 
   async findAll() {
@@ -171,17 +243,29 @@ export class ProductsVariantsService {
     });
   }
 
-  async findCatalog(query: ListProductVariantsDto) {
+  async findCatalog(userScope: BranchScopedUser, query: ListProductVariantsDto) {
     const page = Math.max(1, Number(query.page ?? 1));
     const limit = Math.min(200, Math.max(1, Number(query.limit ?? 50)));
     const search = query.search?.trim();
+    const resolvedBranchId = this.resolveOperationalBranchId(
+      userScope,
+      query.branchId
+    );
 
     const qb = this.variantRepo
       .createQueryBuilder('variant')
       .leftJoinAndSelect('variant.productBase', 'productBase')
       .leftJoinAndSelect('variant.category', 'category')
       .leftJoinAndSelect('variant.brand', 'brand')
+      .innerJoin('variant.branchAssignments', 'branchAssignment')
       .where('variant.isActive = :isActive', { isActive: true });
+
+    qb.andWhere('branchAssignment.branchId = :branchId', {
+      branchId: resolvedBranchId
+    });
+    qb.andWhere('branchAssignment.isActive = :assignmentActive', {
+      assignmentActive: true
+    });
 
     if (query.categoryId) {
       qb.andWhere('category.id = :categoryId', {
@@ -276,7 +360,8 @@ export class ProductsVariantsService {
         ...variant,
         stockByBranch,
         totalStock,
-        stock: totalStock
+        stock: totalStock,
+        assignedBranchIds: [resolvedBranchId]
       };
     });
 
@@ -454,6 +539,8 @@ export class ProductsVariantsService {
     let updatedCount = 0;
 
     for (const variant of variants) {
+      await this.ensureVariantAssignment(variant, branch.id);
+
       const current = (variant.stockLocations || []).find(
         (stockLocation) =>
           stockLocation.isActive &&

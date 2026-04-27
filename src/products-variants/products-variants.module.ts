@@ -6,6 +6,7 @@ import { ProductsVariantsController } from './products-variants.controller';
 import { ProductsBase } from 'src/products-base/entities/products-base.entity';
 import { Branch } from 'src/branches/entities/branch.entity';
 import { StockLocation } from 'src/branches/entities/stock-location.entity';
+import { ProductVariantBranch } from './entities/product-variant-branch.entity';
 import { PriceHistoryModule } from 'src/price-history/price-history.module';
 
 @Module({
@@ -14,7 +15,8 @@ import { PriceHistoryModule } from 'src/price-history/price-history.module';
       ProductVariant,
       ProductsBase,
       Branch,
-      StockLocation
+      StockLocation,
+      ProductVariantBranch
     ]),
     forwardRef(() => PriceHistoryModule) // ✅ IMPORT NECESARIO
   ],

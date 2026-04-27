@@ -14,6 +14,7 @@ import { StockMovement } from 'src/stock/entities/stock.entity';
 import { StockLocation } from 'src/branches/entities/stock-location.entity';
 import { Category } from 'src/categories/entities/category.entity';
 import { Brand } from 'src/brands/entities/brand.entity';
+import { ProductVariantBranch } from './product-variant-branch.entity';
 
 @Entity({ name: 'productvariants' })
 export class ProductVariant {
@@ -90,4 +91,10 @@ export class ProductVariant {
     (stockLocation) => stockLocation.productVariant
   )
   stockLocations: StockLocation[];
+
+  @OneToMany(
+    () => ProductVariantBranch,
+    (branchAssignment) => branchAssignment.variant
+  )
+  branchAssignments: ProductVariantBranch[];
 }

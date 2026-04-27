@@ -196,6 +196,7 @@ El JWT expone contexto suficiente para encapsular operaciones por sucursal:
 ### Stock y transferencias
 
 - el módulo `stock` administra movimientos, alertas y transferencias
+- la visibilidad comercial del catálogo se desacopla del stock mediante asignaciones explícitas de variantes por sucursal
 - hoy el sistema maneja ubicaciones reales:
   - `branch`
   - `warehouse`
@@ -208,6 +209,13 @@ El JWT expone contexto suficiente para encapsular operaciones por sucursal:
 - reportes financieros y movimientos salen de `cash_movements`
 - el filtro por sucursal depende del `cash_register.branchId`
 - existen endpoints de resumen diario, finanzas, utilidad, movimientos de caja y stock
+
+### Catálogo de productos por sucursal
+
+- `product_variant_branches` define en qué sucursal una variante puede verse/venderse
+- `stock_locations` sigue siendo la fuente de verdad del stock físico por ubicación
+- altas manuales e importaciones masivas asignan variantes automáticamente a la sucursal activa resuelta desde JWT
+- usuarios globales también operan por sucursal activa en flujos diarios; la vista multi-sucursal queda reservada a reportes comparativos
 
 ### Cuenta corriente de clientes
 
@@ -258,6 +266,8 @@ GET  /product-variants/catalog
 POST /product-variants
 PATCH /product-variants/:id
 POST /product-variants/bulk-update-prices
+
+Los endpoints de catálogo y de importación/alta usan la sucursal activa del usuario para encapsular la operación cotidiana por sucursal.
 GET  /product-variants/:id/stock-by-branch
 
 POST /stock/transfer

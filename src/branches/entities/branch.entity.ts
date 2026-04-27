@@ -10,6 +10,7 @@ import { BranchUser } from './branch-user.entity';
 import { StockLocation } from './stock-location.entity';
 import { CashRegister } from 'src/cash/entities/cash-register.entity';
 import { Order } from 'src/orders/entities/order.entity';
+import { ProductVariantBranch } from 'src/products-variants/entities/product-variant-branch.entity';
 
 export enum BranchType {
   BRANCH = 'branch',
@@ -76,6 +77,12 @@ export class Branch {
 
   @OneToMany(() => StockLocation, (stockLocation) => stockLocation.branch)
   stockLocations: StockLocation[];
+
+  @OneToMany(
+    () => ProductVariantBranch,
+    (productAssignment) => productAssignment.branch
+  )
+  productAssignments: ProductVariantBranch[];
 
   @OneToMany(() => CashRegister, (cashRegister) => cashRegister.branch)
   cashRegisters: CashRegister[];

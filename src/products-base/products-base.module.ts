@@ -6,6 +6,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Brand } from 'src/brands/entities/brand.entity';
 import { Category } from 'src/categories/entities/category.entity';
 import { ProductVariant } from 'src/products-variants/entities/products-variant.entity';
+import { ProductVariantBranch } from 'src/products-variants/entities/product-variant-branch.entity';
 import { StockLocation } from 'src/branches/entities/stock-location.entity';
 import { Branch } from 'src/branches/entities/branch.entity';
 import { BranchesModule } from 'src/branches/branches.module';
@@ -18,6 +19,7 @@ import { CategoriesModule } from 'src/categories/categories.module';
       Brand,
       Category,
       ProductVariant,
+      ProductVariantBranch,
       StockLocation,
       Branch
     ]),
