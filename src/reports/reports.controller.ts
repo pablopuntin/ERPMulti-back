@@ -222,11 +222,24 @@ export class ReportsController {
     description: 'Ordenar por total de stock',
     example: 'desc'
   })
+  @ApiQuery({
+    name: 'branchId',
+    required: false,
+    description:
+      'Sucursal específica. Solo disponible para usuarios con alcance global.'
+  })
   getStockSummary(
+    @Req() req: Request,
     @Query('search') search?: string,
-    @Query('order') order: 'asc' | 'desc' = 'desc'
+    @Query('order') order: 'asc' | 'desc' = 'desc',
+    @Query('branchId') branchId?: string
   ) {
-    return this.reportsService.getStockSummary(search, order);
+    return this.reportsService.getStockSummary(
+      req.user as any,
+      search,
+      order,
+      branchId
+    );
   }
 
   // //////////////////////////////////////////////////////////////////////////////////////

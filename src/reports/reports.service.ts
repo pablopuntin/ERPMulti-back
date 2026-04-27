@@ -608,7 +608,25 @@ export class ReportsService {
       );
   }
 
-  async getStockSummary(search?: string, order: 'asc' | 'desc' = 'desc') {
+  async getStockSummary(
+    user: ReportAccessUser,
+    search?: string,
+    order: 'asc' | 'desc' = 'desc',
+    branchId?: string
+  ) {
+    const resolvedBranchId = resolveBranchScope(user, {
+      requestedBranchId: branchId,
+      allowGlobal: true,
+      globalPermissions: ['view_reports'],
+      requireActiveBranch: false,
+      forbiddenMessage:
+        'No tienes acceso a la sucursal solicitada para reportes'
+    });
+
+    if (!resolvedBranchId) {
+      return [];
+    }
+
     const whereClause = search
       ? { productBase: { name: ILike(`%${search}%`) } }
       : {};
@@ -618,11 +636,13 @@ export class ReportsService {
       where: whereClause
     });
 
-    // 🧮 Obtener stock para cada variante usando el nuevo sistema
     const variantsWithStock = await Promise.all(
       variants.map(async (variant) => ({
         ...variant,
-        stock: await this.productsBaseService.calculateTotalStock(variant.id)
+        stock: await this.productsBaseService.calculateStockByBranch(
+          variant.id,
+          resolvedBranchId
+        )
       }))
     );
 
@@ -652,7 +672,7 @@ export class ReportsService {
       {} as Record<string, any>
     );
 
-    return Object.values(summary).sort((a, b) =>
+    return Object.values(summary).sort((a: any, b: any) =>
       order === 'asc'
         ? a.totalStock - b.totalStock
         : b.totalStock - a.totalStock
