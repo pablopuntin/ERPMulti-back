@@ -123,6 +123,38 @@ export class ProductsBaseService {
       .replace(/[^a-z0-9]/g, '');
   }
 
+  private escapeCsvValue(value: unknown) {
+    const serialized = String(value ?? '');
+    if (
+      serialized.includes(',') ||
+      serialized.includes('"') ||
+      serialized.includes('\n') ||
+      serialized.includes('\r')
+    ) {
+      return `"${serialized.replace(/"/g, '""')}"`;
+    }
+
+    return serialized;
+  }
+
+  private formatCsvDecimal(value: unknown) {
+    const numericValue = Number(value ?? 0);
+    if (!Number.isFinite(numericValue)) {
+      return '0.00';
+    }
+
+    return numericValue.toFixed(2);
+  }
+
+  private formatCsvInteger(value: unknown) {
+    const numericValue = Number(value ?? 0);
+    if (!Number.isFinite(numericValue)) {
+      return '0';
+    }
+
+    return String(Math.trunc(numericValue));
+  }
+
   private getExcelValue(row: Record<string, unknown>, aliases: string[]) {
     const normalizedEntries = Object.entries(row).map(
       ([key, value]) => [this.normalizeImportHeader(key), value] as const
@@ -1301,6 +1333,84 @@ export class ProductsBaseService {
     }
 
     return product;
+  }
+
+  async exportImportTemplateCsv(
+    userScope: BranchScopedUser,
+    branchId?: string
+  ) {
+    const resolvedBranchId = this.resolveOperationalBranchId(userScope, branchId);
+    const branch = await this.branchesRepository.findOne({
+      where: { id: resolvedBranchId, isActive: true }
+    });
+
+    if (!branch) {
+      throw new BadRequestException('La sucursal solicitada no existe o está inactiva');
+    }
+
+    const productBases = await this.findAll(userScope, false, resolvedBranchId);
+    const fullProducts = await Promise.all(
+      productBases.map((productBase) => this.findOne(productBase.id))
+    );
+
+    const headers = [
+      'categoria',
+      'marca',
+      'producto_base',
+      'variante',
+      'sku',
+      'descripcion',
+      'precio_compra',
+      'precio_venta',
+      'stock_minimo',
+      'sucursal',
+      'tipo_ubicacion',
+      'ubicacion',
+      'stock',
+      'grupo',
+      'subgrupo'
+    ];
+
+    const rows = fullProducts.flatMap((productBase) => {
+      const activeVariants = (productBase.variants || []).filter((variant) =>
+        variant.isActive
+      );
+
+      return activeVariants.map((variant) => {
+        const matchingStock = (variant.stockLocations || []).find(
+          (stockLocation) =>
+            stockLocation.isActive &&
+            stockLocation.locationType === StockLocationType.BRANCH &&
+            stockLocation.branch?.id === branch.id
+        );
+
+        return [
+          productBase.category?.name || variant.category?.name || '',
+          productBase.brand?.name || variant.brand?.name || '',
+          productBase.name || '',
+          variant.name || productBase.name || '',
+          variant.sku || '',
+          productBase.description || '',
+          this.formatCsvDecimal(variant.purchasePrice ?? 0),
+          this.formatCsvDecimal(variant.price ?? 0),
+          this.formatCsvInteger(matchingStock?.minStock ?? variant.minStock ?? 5),
+          branch.name,
+          'branch',
+          branch.name,
+          this.formatCsvInteger(
+            matchingStock?.availableQuantity ?? matchingStock?.quantity ?? 0
+          ),
+          '',
+          ''
+        ];
+      });
+    });
+
+    const csvLines = [headers, ...rows].map((row) =>
+      row.map((value) => this.escapeCsvValue(value)).join(',')
+    );
+
+    return `\uFEFF${csvLines.join('\n')}`;
   }
 
   // ---------------------------------------------------------------------------

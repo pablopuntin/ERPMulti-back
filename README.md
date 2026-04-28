@@ -215,6 +215,8 @@ El JWT expone contexto suficiente para encapsular operaciones por sucursal:
 - `product_variant_branches` define en qué sucursal una variante puede verse/venderse
 - `stock_locations` sigue siendo la fuente de verdad del stock físico por ubicación
 - altas manuales e importaciones masivas asignan variantes automáticamente a la sucursal activa resuelta desde JWT
+- `gerente_sucursal` puede importar/exportar CSV de productos, siempre dentro de su sucursal activa
+- el CSV de exportación replica el formato esperado por el import masivo y normaliza precios a 2 decimales
 - usuarios globales también operan por sucursal activa en flujos diarios; la vista multi-sucursal queda reservada a reportes comparativos
 
 ### Cuenta corriente de clientes

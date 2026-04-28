@@ -13,7 +13,8 @@ import {
   UseInterceptors,
   BadRequestException,
   Req,
-  Query
+  Query,
+  Res
 } from '@nestjs/common';
 import { AuthSwagger } from 'src/auth/decorators/auth-swagger.decorator';
 import { ApiBody, ApiConsumes, ApiOperation } from '@nestjs/swagger';
@@ -26,6 +27,7 @@ import { AddVariantWithStocksDto } from './dto/add-variant-with-stocks.dto';
 import { PreviewProductsImportDto } from './dto/preview-products-import.dto';
 import { ProductsBaseService } from './products-base.service';
 import type { Request } from 'express';
+import type { Response } from 'express';
 
 type UploadedExcelFile = {
   originalname?: string;
@@ -42,6 +44,32 @@ export class ProductsBaseController {
   @Roles('root', 'gerente_general', 'gerente_sucursal', 'vendedor', 'cajero')
   findAll(@Req() req: Request, @Query('branchId') branchId?: string) {
     return this.productsBaseService.findAll(req.user as any, false, branchId);
+  }
+
+  @ApiOperation({
+    summary:
+      'Exportar productos en CSV con el formato esperado para importación masiva'
+  })
+  @Get('export/import-template.csv')
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles('root', 'gerente_general', 'gerente_sucursal')
+  async exportImportTemplate(
+    @Req() req: Request,
+    @Res() res: Response,
+    @Query('branchId') branchId?: string
+  ) {
+    const csv = await this.productsBaseService.exportImportTemplateCsv(
+      req.user as any,
+      branchId
+    );
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader(
+      'Content-Disposition',
+      'attachment; filename="products-import-template.csv"'
+    );
+
+    return res.send(csv);
   }
 
   @ApiOperation({ summary: 'Mostrar productos por id' })
@@ -63,7 +91,7 @@ export class ProductsBaseController {
   @ApiOperation({ summary: 'Preview de importación masiva de productos' })
   @Post('import/preview')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('root', 'gerente_general')
+  @Roles('root', 'gerente_general', 'gerente_sucursal')
   previewImport(@Req() req: Request, @Body() previewProductsImportDto: PreviewProductsImportDto) {
     return this.productsBaseService.previewImport(req.user as any, previewProductsImportDto);
   }
@@ -86,7 +114,7 @@ export class ProductsBaseController {
   })
   @Post('import/preview-file')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('root', 'gerente_general')
+  @Roles('root', 'gerente_general', 'gerente_sucursal')
   @UseInterceptors(FileInterceptor('file'))
   previewImportFile(@Req() req: Request, @UploadedFile() file: UploadedExcelFile) {
     if (!file) {
@@ -104,7 +132,7 @@ export class ProductsBaseController {
   @ApiOperation({ summary: 'Importación masiva de productos' })
   @Post('import')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('root', 'gerente_general')
+  @Roles('root', 'gerente_general', 'gerente_sucursal')
   importProducts(@Req() req: Request, @Body() previewProductsImportDto: PreviewProductsImportDto) {
     return this.productsBaseService.importProducts(req.user as any, previewProductsImportDto);
   }
@@ -125,7 +153,7 @@ export class ProductsBaseController {
   })
   @Post('import/file')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles('root', 'gerente_general')
+  @Roles('root', 'gerente_general', 'gerente_sucursal')
   @UseInterceptors(FileInterceptor('file'))
   importProductsFile(@Req() req: Request, @UploadedFile() file: UploadedExcelFile) {
     if (!file) {
