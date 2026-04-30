@@ -19,7 +19,16 @@ export class RemitoPdfService {
       const customerName = remito.customerNameSnapshot || 'Cliente sin identificar';
       const sellerName = remito.sellerNameSnapshot || 'Sin vendedor';
       const branchName = remito.branchNameSnapshot || 'Sin sucursal';
-      const showPrices = Number(remito.pendingPaymentAmount || 0) <= 0;
+      const totalPaidAmount = Number(remito.totalPaidAmount || 0);
+      const pendingPaymentAmount = Number(remito.pendingPaymentAmount || 0);
+      const totalApprovedAmount = Number(remito.totalApprovedAmount || 0);
+      const showPrices = totalPaidAmount > 0 || pendingPaymentAmount <= 0;
+      const paymentStatusLabel =
+        pendingPaymentAmount <= 0
+          ? 'Pago completo'
+          : totalPaidAmount > 0
+            ? 'Pago parcial / cuenta corriente'
+            : 'Pendiente';
       const pageWidth = doc.page.width;
       const pageHeight = doc.page.height;
       const left = 40;
@@ -147,31 +156,34 @@ export class RemitoPdfService {
         align: 'center'
       });
 
-      doc.font('Helvetica-Bold').fontSize(18).text(title, left + 334, 58, {
-        width: 200,
+      doc.font('Helvetica-Bold').fontSize(16).text(title, left + 320, 58, {
+        width: 220,
         align: 'center'
       });
       doc
         .font('Helvetica')
         .fontSize(8)
-        .text('DOCUMENTO NO VÁLIDO COMO FACTURA', left + 338, 80, {
-          width: 200,
+        .text('DOCUMENTO NO VÁLIDO COMO FACTURA', left + 320, 78, {
+          width: 220,
           align: 'center'
         });
-      doc.font('Helvetica-Bold').fontSize(16).text(remito.remitoNumber || remito.id, left + 320, 100, {
-        width: 220,
-        align: 'center'
-      });
-      doc.font('Helvetica').fontSize(9).text(`Fecha emisión: ${issuedDate}`, left + 310, 122, {
-        width: 220,
+      doc
+        .font('Helvetica-Bold')
+        .fontSize(15)
+        .text(remito.remitoNumber || remito.id, left + 320, 96, {
+          width: 220,
+          align: 'center'
+        });
+      doc.font('Helvetica').fontSize(8.5).text(`Fecha emisión: ${issuedDate}`, left + 308, 120, {
+        width: 224,
         align: 'left'
       });
-      doc.text(`Reimpresión: ${reprintDate}`, left + 310, 136, {
-        width: 220,
+      doc.text(`Reimpresión: ${reprintDate}`, left + 308, 134, {
+        width: 224,
         align: 'left'
       });
 
-      drawBox(left + 8, 144, contentWidth - 16, 82);
+      drawBox(left + 8, 144, contentWidth - 16, 96);
       doc.font('Helvetica').fontSize(10).text(`Sr./es: ${customerName}`, left + 16, 156, {
         width: contentWidth - 32
       });
@@ -181,13 +193,16 @@ export class RemitoPdfService {
         width: contentWidth - 32
       });
       doc.text(`Condición de venta: ${remito.paymentConditionSnapshot || 'No informada'}`, left + 16, 210, {
-        width: 280
+        width: 340
       });
-      doc.text(`Estado del remito: ${remito.status}`, left + 320, 210, {
-        width: 180
+      doc.text(`Estado del remito: ${remito.status}`, left + 16, 226, {
+        width: 220
+      });
+      doc.text(`Estado de cobro: ${paymentStatusLabel}`, left + 280, 226, {
+        width: 220
       });
 
-      doc.y = 240;
+      doc.y = 254;
       drawSectionTitle(
         remito.sourceType === RemitoSourceType.DELIVERY_EVENT
           ? 'Productos retirados en esta entrega'
@@ -225,7 +240,7 @@ export class RemitoPdfService {
           summaryY + 12
         );
         doc.text(
-          `Total aprobado: $${Number(remito.totalApprovedAmount || 0).toLocaleString('es-AR')}`,
+          `Total aprobado: $${totalApprovedAmount.toLocaleString('es-AR')}`,
           left + 12,
           summaryY + 28
         );
@@ -235,12 +250,12 @@ export class RemitoPdfService {
           summaryY + 44
         );
         doc.text(
-          `Total cobrado: $${Number(remito.totalPaidAmount || 0).toLocaleString('es-AR')}`,
+          `Total cobrado: $${totalPaidAmount.toLocaleString('es-AR')}`,
           left + 280,
           summaryY + 12
         );
         doc.text(
-          `Saldo pendiente: $${Number(remito.pendingPaymentAmount || 0).toLocaleString('es-AR')}`,
+          `Saldo CC / pendiente: $${pendingPaymentAmount.toLocaleString('es-AR')}`,
           left + 280,
           summaryY + 28
         );
@@ -256,8 +271,8 @@ export class RemitoPdfService {
           summaryY + 12
         );
         doc.text(`Productos pendientes: ${pendingItems.length}`, left + 12, summaryY + 28);
-        doc.text(`Estado de cobro: pendiente`, left + 12, summaryY + 44);
-        doc.text(`Importes ocultos por saldo pendiente`, left + 280, summaryY + 12);
+        doc.text(`Estado de cobro: ${paymentStatusLabel}`, left + 12, summaryY + 44);
+        doc.text(`Importes ocultos por remito sin cobro registrado`, left + 280, summaryY + 12);
       }
       doc.y = summaryY + 84;
 

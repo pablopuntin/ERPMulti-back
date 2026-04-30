@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Order, OrderFulfillmentStatus } from 'src/orders/entities/order.entity';
 import { OrderDeliveryEvent } from 'src/orders/entities/order-delivery-event.entity';
+import { Branch } from 'src/branches/entities/branch.entity';
 import {
   BranchScopedUser,
   ensureBranchAccess,
@@ -19,6 +20,8 @@ export class RemitosService {
     private readonly remitoRepo: Repository<Remito>,
     @InjectRepository(RemitoItem)
     private readonly remitoItemRepo: Repository<RemitoItem>,
+    @InjectRepository(Branch)
+    private readonly branchRepo: Repository<Branch>,
     private readonly remitoPdfService: RemitoPdfService
   ) {}
 
@@ -154,10 +157,38 @@ export class RemitosService {
     return Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
   }
 
+  private async resolveBranchName(order: Order) {
+    if (order.branch?.name?.trim()) {
+      return order.branch.name.trim();
+    }
+
+    if (!order.branchId) {
+      return 'Sin sucursal';
+    }
+
+    const branch = await this.branchRepo.findOne({
+      where: { id: order.branchId }
+    });
+
+    return branch?.name?.trim() || 'Sin sucursal';
+  }
+
   private resolvePaymentCondition(order: Order) {
-    return Number(order.amountPaid || 0) >= Number(order.approvedTotal || order.total || 0)
-      ? 'Contado'
-      : 'Pendiente / CC futura';
+    const approvedTotal = this.roundCurrency(
+      Number(order.approvedTotal || order.total || 0)
+    );
+    const amountPaid = this.roundCurrency(Number(order.amountPaid || 0));
+    const pendingAmount = this.roundCurrency(Math.max(approvedTotal - amountPaid, 0));
+
+    if (pendingAmount <= 0) {
+      return 'Contado · saldo cancelado';
+    }
+
+    if (amountPaid > 0) {
+      return `Pago parcial / CC · cobrado $${amountPaid.toLocaleString('es-AR')} · saldo $${pendingAmount.toLocaleString('es-AR')}`;
+    }
+
+    return `Cuenta corriente / pendiente · saldo $${pendingAmount.toLocaleString('es-AR')}`;
   }
 
   private resolveRemitoStatus(order: Order) {
@@ -178,6 +209,7 @@ export class RemitosService {
     issuedByUserId?: string;
   }) {
     const { order, saleId, issuedByUserId } = params;
+    const branchNameSnapshot = await this.resolveBranchName(order);
 
     const existing = await this.remitoRepo.findOne({
       where: {
@@ -200,7 +232,7 @@ export class RemitosService {
     remito.sellerNameSnapshot =
       [order.user?.firstname, order.user?.lastname].filter(Boolean).join(' ') ||
       'Sin vendedor';
-    remito.branchNameSnapshot = order.branch?.name || 'Sin sucursal';
+    remito.branchNameSnapshot = branchNameSnapshot;
     remito.contactSnapshot =
       order.customer?.phone || order.customer?.email || order.customer?.document || 'No informado';
     remito.paymentConditionSnapshot = this.resolvePaymentCondition(order);
@@ -258,6 +290,7 @@ export class RemitosService {
     issuedByUserId?: string;
   }) {
     const { order, deliveryEvent, saleId, issuedByUserId } = params;
+    const branchNameSnapshot = await this.resolveBranchName(order);
 
     const existing = await this.remitoRepo.findOne({
       where: { orderDeliveryEventId: deliveryEvent.id }
@@ -285,7 +318,7 @@ export class RemitosService {
       sellerNameSnapshot:
         [order.user?.firstname, order.user?.lastname].filter(Boolean).join(' ') ||
         'Sin vendedor',
-      branchNameSnapshot: order.branch?.name || 'Sin sucursal',
+      branchNameSnapshot,
       contactSnapshot:
         order.customer?.phone || order.customer?.email || order.customer?.document || 'No informado',
       paymentConditionSnapshot: this.resolvePaymentCondition(order),
