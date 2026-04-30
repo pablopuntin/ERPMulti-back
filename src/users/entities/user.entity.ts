@@ -15,6 +15,7 @@ import { ApiProperty } from '@nestjs/swagger';
 import { Order } from '../../orders/entities/order.entity';
 import { Purchase } from 'src/purchase/entities/purchase.entity';
 import { BranchUser } from '../../branches/entities/branch-user.entity';
+import { Sale } from 'src/sales/entities/sale.entity';
 
 @Entity('users')
 export class User {
@@ -78,6 +79,15 @@ export class User {
   // ✅ Una marca tiene muchos productos base
   @OneToMany(() => Order, (order) => order.user)
   order: Order[];
+
+  @OneToMany(() => Sale, (sale) => sale.sellerUser)
+  salesAsSeller: Sale[];
+
+  @OneToMany(() => Sale, (sale) => sale.createdByUser)
+  salesAsCreator: Sale[];
+
+  @OneToMany(() => Sale, (sale) => sale.cashierUser)
+  salesAsCashier: Sale[];
 
   @BeforeInsert()
   @BeforeUpdate()

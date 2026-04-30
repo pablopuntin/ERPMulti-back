@@ -22,6 +22,8 @@ import { ExpensesModule } from './expenses/expenses.module';
 import { PurchaseModule } from './purchase/purchase.module';
 import { BranchesModule } from './branches/branches.module';
 import { CustomersModule } from './customers/customers.module';
+import { SalesModule } from './sales/sales.module';
+import { RemitosModule } from './remitos/remitos.module';
 import { UserMiddleware } from './auth/middleware/user.middleware';
 
 @Module({
@@ -51,7 +53,9 @@ import { UserMiddleware } from './auth/middleware/user.middleware';
     ExpensesModule,
     PurchaseModule,
     BranchesModule,
-    CustomersModule
+    CustomersModule,
+    SalesModule,
+    RemitosModule
   ],
   controllers: [AppController]
 })

@@ -5,6 +5,7 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   OneToMany,
+  OneToOne,
   ManyToOne,
   JoinColumn
 } from 'typeorm';
@@ -13,6 +14,7 @@ import { OrderDeliveryEvent } from './order-delivery-event.entity';
 import { User } from 'src/users/entities/user.entity';
 import { Branch } from '../../branches/entities/branch.entity';
 import { Customer } from 'src/customers/entities/customer.entity';
+import { Sale } from 'src/sales/entities/sale.entity';
 
 export enum OrderStatus {
   PENDING = 'pending',
@@ -115,6 +117,9 @@ export class Order {
   @JoinColumn({ name: 'customerId' })
   customer?: Customer;
 
+  @OneToOne(() => Sale, (sale) => sale.order, { nullable: true })
+  sale?: Sale;
+
   @Column({ type: 'timestamp', nullable: true })
   submittedAt?: Date;
 
@@ -123,6 +128,12 @@ export class Order {
 
   @Column({ type: 'timestamp', nullable: true })
   finalizedInCashAt?: Date;
+
+  @Column({ nullable: true, unique: true })
+  convertedSaleId?: string;
+
+  @Column({ type: 'timestamp', nullable: true })
+  convertedToSaleAt?: Date;
 
   @Column({ type: 'timestamp', nullable: true })
   deliveredAt?: Date;

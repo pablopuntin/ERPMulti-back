@@ -12,9 +12,10 @@ import { User } from 'src/users/entities/user.entity';
 import { Customer } from 'src/customers/entities/customer.entity';
 import { Payment } from 'src/payments/entities/payment.entity';
 import { CashModule } from 'src/cash/cash.module';
-import { RemitoPdfService } from './remito-pdf.service';
 import { CustomerCreditModule } from 'src/customer-credit/customer-credit.module';
 import { Branch } from 'src/branches/entities/branch.entity';
+import { SalesModule } from 'src/sales/sales.module';
+import { RemitosModule } from 'src/remitos/remitos.module';
 
 @Module({
   imports: [
@@ -31,10 +32,12 @@ import { Branch } from 'src/branches/entities/branch.entity';
     ]),
     StockModule,
     CashModule,
-    CustomerCreditModule
+    CustomerCreditModule,
+    SalesModule,
+    RemitosModule
   ],
   controllers: [OrdersController],
-  providers: [OrdersService, RemitoPdfService],
+  providers: [OrdersService],
   exports: [OrdersService]
 })
 export class OrdersModule {}

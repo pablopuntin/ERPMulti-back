@@ -8,6 +8,7 @@ import {
 } from 'typeorm';
 import { CustomerBranch } from './customer-branch.entity';
 import { Order } from 'src/orders/entities/order.entity';
+import { Sale } from 'src/sales/entities/sale.entity';
 
 @Entity('customers')
 export class Customer {
@@ -52,6 +53,9 @@ export class Customer {
 
   @OneToMany(() => Order, (order) => order.customer)
   orders: Order[];
+
+  @OneToMany(() => Sale, (sale) => sale.customer)
+  sales: Sale[];
 
   @CreateDateColumn()
   createdAt: Date;

@@ -113,26 +113,6 @@ export class OrdersController {
     return this.ordersService.finalizeInCash(req.user as any, id, dto);
   }
 
-  @Get(':id/remito-pdf')
-  @ApiOperation({ summary: 'Generar PDF acumulado del remito' })
-  generateRemitoPdf(@Req() req: Request, @Param('id') id: string) {
-    return this.ordersService.generateRemitoPdf(req.user as any, id);
-  }
-
-  @Get(':id/delivery-events/:deliveryEventId/remito-pdf')
-  @ApiOperation({ summary: 'Generar PDF puntual de un evento de entrega' })
-  generateDeliveryEventRemitoPdf(
-    @Req() req: Request,
-    @Param('id') id: string,
-    @Param('deliveryEventId') deliveryEventId: string
-  ) {
-    return this.ordersService.generateDeliveryEventRemitoPdf(
-      req.user as any,
-      id,
-      deliveryEventId
-    );
-  }
-
   @Patch(':id')
   @ApiOperation({ summary: 'Actualizar estado de una orden' })
   update(

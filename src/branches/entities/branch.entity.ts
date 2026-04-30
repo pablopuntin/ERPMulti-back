@@ -11,6 +11,7 @@ import { StockLocation } from './stock-location.entity';
 import { CashRegister } from 'src/cash/entities/cash-register.entity';
 import { Order } from 'src/orders/entities/order.entity';
 import { ProductVariantBranch } from 'src/products-variants/entities/product-variant-branch.entity';
+import { Sale } from 'src/sales/entities/sale.entity';
 
 export enum BranchType {
   BRANCH = 'branch',
@@ -89,4 +90,7 @@ export class Branch {
 
   @OneToMany(() => Order, (order) => order.branch)
   orders: Order[];
+
+  @OneToMany(() => Sale, (sale) => sale.branch)
+  sales: Sale[];
 }

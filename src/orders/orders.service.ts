@@ -37,8 +37,10 @@ import {
 import { Payment } from 'src/payments/entities/payment.entity';
 import { CashMovement, CashMovementType } from 'src/cash/entities/cash-movement.entity';
 import { CashService } from 'src/cash/cash.service';
-import { RemitoPdfService } from './remito-pdf.service';
 import { CustomerCreditService } from 'src/customer-credit/customer-credit.service';
+import { SalesService } from 'src/sales/sales.service';
+import { RemitoSourceType } from 'src/remitos/entities/remito.entity';
+import { RemitosService } from 'src/remitos/remitos.service';
 
 type ScopedUser = BranchScopedUser;
 
@@ -63,8 +65,9 @@ export class OrdersService {
     private readonly branchRepo: Repository<Branch>,
     private readonly stockService: StockService,
     private readonly cashService: CashService,
-    private readonly remitoPdfService: RemitoPdfService,
-    private readonly customerCreditService: CustomerCreditService
+    private readonly customerCreditService: CustomerCreditService,
+    private readonly salesService: SalesService,
+    private readonly remitosService: RemitosService
   ) {}
 
   private async generateRemitoNumber() {
@@ -475,30 +478,6 @@ export class OrdersService {
     });
   }
 
-  async generateRemitoPdf(userScope: ScopedUser, id: string) {
-    const order = await this.findOne(userScope, id);
-    return this.remitoPdfService.generateCumulative(order);
-  }
-
-  async generateDeliveryEventRemitoPdf(
-    userScope: ScopedUser,
-    id: string,
-    deliveryEventId: string
-  ) {
-    const order = await this.findOne(userScope, id);
-    const deliveryEvent = (order.deliveryEvents || []).find(
-      (event) => event.id === deliveryEventId
-    );
-
-    if (!deliveryEvent) {
-      throw new NotFoundException(
-        `Delivery event ${deliveryEventId} not found for order ${id}`
-      );
-    }
-
-    return this.remitoPdfService.generateDeliveryEvent(order, deliveryEvent);
-  }
-
   async finalizeInCash(
     userScope: ScopedUser,
     id: string,
@@ -604,13 +583,29 @@ export class OrdersService {
       order.finalizedInCashAt = order.finalizedInCashAt || new Date();
       await this.orderRepo.save(order);
 
-      const pdfBuffer = await this.remitoPdfService.generateCumulative(order);
+      await this.remitosService.createOrUpdateCumulativeFromOrder({
+        order,
+        saleId: order.convertedSaleId,
+        issuedByUserId: userScope.userId
+      });
+      const remitoForPdf = await this.remitosService.findByOrderAndSourceType(
+        userScope,
+        {
+          orderId: order.id,
+          sourceType: RemitoSourceType.CUMULATIVE
+        }
+      );
+      const { pdfBuffer, fileName } = await this.remitosService.getPdf(
+        userScope,
+        remitoForPdf.id
+      );
       return {
         order,
         paymentRegistered: false,
         pdfType: 'cumulative',
         pdfBase64: pdfBuffer.toString('base64'),
-        pdfFileName: `${(order.remitoNumber || order.id).replace(/[^a-zA-Z0-9-_]/g, '_')}.pdf`
+        pdfFileName: fileName,
+        remitoId: remitoForPdf.id
       };
     }
 
@@ -719,13 +714,47 @@ export class OrdersService {
       notes: dto.notes
     });
 
+    const sale = await this.salesService.createFromOrder({
+      order: finalOrder,
+      cashierUserId: dto.payment?.paidByUserId || userScope.userId,
+      createdByUserId: userScope.userId
+    });
+
+    if (!finalOrder.convertedSaleId) {
+      finalOrder.convertedSaleId = sale.id;
+      finalOrder.convertedToSaleAt = new Date();
+      await this.orderRepo.save(finalOrder);
+    }
+
+    await this.remitosService.createOrUpdateCumulativeFromOrder({
+      order: finalOrder,
+      saleId: sale.id,
+      issuedByUserId: userScope.userId
+    });
+
+    if (latestDeliveryEvent) {
+      await this.remitosService.createFromDeliveryEvent({
+        order: finalOrder,
+        deliveryEvent: latestDeliveryEvent,
+        saleId: sale.id,
+        issuedByUserId: userScope.userId
+      });
+    }
+
     const refreshedOrder = await this.findOne(userScope, id);
-    const pdfBuffer = latestDeliveryEvent
-      ? await this.remitoPdfService.generateDeliveryEvent(
-          refreshedOrder,
-          latestDeliveryEvent
+    const remitoForPdf = latestDeliveryEvent
+      ? await this.remitosService.findByDeliveryEventId(
+          userScope,
+          latestDeliveryEvent.id
         )
-      : await this.remitoPdfService.generateCumulative(refreshedOrder);
+      : await this.remitosService.findByOrderAndSourceType(userScope, {
+          orderId: refreshedOrder.id,
+          sourceType: RemitoSourceType.CUMULATIVE
+        });
+    const { pdfBuffer, fileName } = await this.remitosService.getPdf(
+      userScope,
+      remitoForPdf.id
+    );
 
     return {
       order: refreshedOrder,
@@ -733,7 +762,8 @@ export class OrdersService {
       pdfType: latestDeliveryEvent ? 'delivery_event' : 'cumulative',
       deliveryEventId: latestDeliveryEvent?.id,
       pdfBase64: pdfBuffer.toString('base64'),
-      pdfFileName: `${(finalOrder.remitoNumber || finalOrder.id).replace(/[^a-zA-Z0-9-_]/g, '_')}.pdf`
+      pdfFileName: fileName,
+      remitoId: remitoForPdf.id
     };
   }
 
