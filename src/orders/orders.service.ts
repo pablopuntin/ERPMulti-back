@@ -37,7 +37,7 @@ import {
 import { Payment } from 'src/payments/entities/payment.entity';
 import { CashMovement, CashMovementType } from 'src/cash/entities/cash-movement.entity';
 import { CashService } from 'src/cash/cash.service';
-import { CustomerCreditService } from 'src/customer-credit/customer-credit.service';
+import { AccountLedgerService } from 'src/account/services/account-ledger.service';
 import { SalesService } from 'src/sales/sales.service';
 import { RemitoSourceType } from 'src/remitos/entities/remito.entity';
 import { RemitosService } from 'src/remitos/remitos.service';
@@ -65,7 +65,7 @@ export class OrdersService {
     private readonly branchRepo: Repository<Branch>,
     private readonly stockService: StockService,
     private readonly cashService: CashService,
-    private readonly customerCreditService: CustomerCreditService,
+    private readonly accountLedgerService: AccountLedgerService,
     private readonly salesService: SalesService,
     private readonly remitosService: RemitosService
   ) {}
@@ -467,11 +467,10 @@ export class OrdersService {
       lockedOrder.paymentStatus = this.resolveNextPaymentStatus(lockedOrder);
       const savedOrder = await orderRepo.save(lockedOrder);
 
-      await this.customerCreditService.syncOrderDebt({
+      await this.accountLedgerService.syncOrderDebt({
         order: savedOrder,
         userId: dto.payment?.paidByUserId || userScope.userId,
-        notes: dto.payment?.notes,
-        manager
+        notes: dto.payment?.notes
       });
 
       return true;
@@ -708,7 +707,7 @@ export class OrdersService {
       await this.orderRepo.save(finalOrder);
     }
 
-    await this.customerCreditService.syncOrderDebt({
+    await this.accountLedgerService.syncOrderDebt({
       order: finalOrder,
       userId: dto.payment?.paidByUserId || userScope.userId,
       notes: dto.notes

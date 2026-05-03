@@ -12,7 +12,7 @@ import { User } from 'src/users/entities/user.entity';
 import { Customer } from 'src/customers/entities/customer.entity';
 import { Payment } from 'src/payments/entities/payment.entity';
 import { CashModule } from 'src/cash/cash.module';
-import { CustomerCreditModule } from 'src/customer-credit/customer-credit.module';
+import { AccountModule } from 'src/account/account.module';
 import { Branch } from 'src/branches/entities/branch.entity';
 import { SalesModule } from 'src/sales/sales.module';
 import { RemitosModule } from 'src/remitos/remitos.module';
@@ -32,7 +32,7 @@ import { RemitosModule } from 'src/remitos/remitos.module';
     ]),
     StockModule,
     CashModule,
-    CustomerCreditModule,
+    AccountModule,
     SalesModule,
     RemitosModule
   ],

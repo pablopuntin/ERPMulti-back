@@ -22,7 +22,7 @@ import {
   ensureBranchAccess,
   resolveBranchScope
 } from 'src/common/auth/branch-scope.util';
-import { CustomerCreditService } from 'src/customer-credit/customer-credit.service';
+import { AccountLedgerService } from 'src/account/services/account-ledger.service';
 import { CashService } from 'src/cash/cash.service';
 
 type ScopedUser = BranchScopedUser;
@@ -32,7 +32,7 @@ export class PaymentsService {
   constructor(
     @InjectRepository(Payment)
     private paymentsRepository: Repository<Payment>,
-    private customerCreditService: CustomerCreditService,
+    private accountLedgerService: AccountLedgerService,
     private cashService: CashService
   ) {}
 
@@ -160,11 +160,10 @@ export class PaymentsService {
             : order.completedAt;
 
         const savedOrder = await orderRepo.save(order);
-        await this.customerCreditService.syncOrderDebt({
+        await this.accountLedgerService.syncOrderDebt({
           order: savedOrder,
           userId: dto.paidByUserId,
-          notes: dto.notes,
-          manager
+          notes: dto.notes
         });
 
         return savedPayment.id;
@@ -222,7 +221,7 @@ export class PaymentsService {
   }
 
   async remove(userScope: ScopedUser, id: string, dto?: ReversePaymentDto) {
-    const result = await this.customerCreditService.reversePayment({
+    const result = await this.accountLedgerService.reversePayment({
       paymentId: id,
       userScope,
       reason: dto?.reason

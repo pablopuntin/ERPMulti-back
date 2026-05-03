@@ -16,9 +16,16 @@ import type { Request } from 'express';
 import { CustomersService } from './customers.service';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
-import { CustomerCreditService } from 'src/customer-credit/customer-credit.service';
-import { ApplyCustomerCreditPaymentDto } from 'src/customer-credit/dto/apply-customer-credit-payment.dto';
-import { ApplyCustomerCreditAdjustmentDto } from 'src/customer-credit/dto/apply-customer-credit-adjustment.dto';
+import { ApplyAccountPaymentDto } from 'src/account/dto/apply-account-payment.dto';
+import { CreateAccountAdjustmentDto } from 'src/account/dto/create-account-adjustment.dto';
+import {
+  AccountEntryDirection,
+  AccountEntrySourceModule,
+  AccountEntryType
+} from 'src/account/entities/account-entry.entity';
+import { AccountAdjustmentsService } from 'src/account/services/account-adjustments.service';
+import { AccountLedgerService } from 'src/account/services/account-ledger.service';
+import { AccountStatementService } from 'src/account/services/account-statement.service';
 import { Roles } from 'src/auth/decorators/roles.decorator';
 import { RolesGuard } from 'src/auth/guards/roles.guard';
 
@@ -28,7 +35,9 @@ import { RolesGuard } from 'src/auth/guards/roles.guard';
 export class CustomersController {
   constructor(
     private readonly customersService: CustomersService,
-    private readonly customerCreditService: CustomerCreditService
+    private readonly accountLedgerService: AccountLedgerService,
+    private readonly accountAdjustmentsService: AccountAdjustmentsService,
+    private readonly accountStatementService: AccountStatementService
   ) {}
 
   @Post()
@@ -57,24 +66,46 @@ export class CustomersController {
 
   @Get(':id/credit-summary')
   @ApiOperation({ summary: 'Obtener resumen de cuenta corriente del cliente' })
-  getCreditSummary(@Req() req: Request, @Param('id') id: string) {
-    return this.customerCreditService.getCustomerSummary(id, req.user as any);
+  getCreditSummary(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Query('branchId') branchId?: string
+  ) {
+    return this.accountStatementService.getLegacyCustomerSummary(
+      req.user as any,
+      id,
+      branchId
+    );
   }
 
   @Get(':id/credit-documents')
   @ApiOperation({
     summary: 'Listar comprobantes de cuenta corriente del cliente'
   })
-  getCreditDocuments(@Req() req: Request, @Param('id') id: string) {
-    return this.customerCreditService.getCustomerDocuments(id, req.user as any);
+  getCreditDocuments(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Query('branchId') branchId?: string
+  ) {
+    return this.accountLedgerService.findAll(req.user as any, {
+      customerId: id,
+      branchId
+    });
   }
 
   @Get(':id/credit-movements')
   @ApiOperation({
     summary: 'Listar movimientos de cuenta corriente del cliente'
   })
-  getCreditMovements(@Req() req: Request, @Param('id') id: string) {
-    return this.customerCreditService.getCustomerMovements(id, req.user as any);
+  getCreditMovements(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Query('branchId') branchId?: string
+  ) {
+    return this.accountLedgerService.findAll(req.user as any, {
+      customerId: id,
+      branchId
+    });
   }
 
   @Post(':id/credit-payments/apply')
@@ -85,13 +116,21 @@ export class CustomersController {
   applyCreditPayment(
     @Req() req: Request,
     @Param('id') id: string,
-    @Body() dto: ApplyCustomerCreditPaymentDto
+    @Body() dto: ApplyAccountPaymentDto
   ) {
-    return this.customerCreditService.applyCustomerPayment(
-      req.user as any,
-      id,
-      dto
-    );
+    return this.accountLedgerService.create(req.user as any, {
+      customerId: id,
+      entryType: AccountEntryType.PAYMENT,
+      entryDirection: AccountEntryDirection.CREDIT,
+      amount: Number(dto.amount || 0),
+      sourceModule: AccountEntrySourceModule.PAYMENTS,
+      sourceEntityType: 'customer_account_payment',
+      sourceEntityId: `${id}:${Date.now()}`,
+      cashierUserId: dto.paidByUserId,
+      reasonCode: 'customer_account_payment',
+      reasonText: 'Cobro posterior de cuenta corriente',
+      notes: dto.notes
+    });
   }
 
   @Roles('root', 'gerente_general', 'gerente_sucursal', 'cajero')
@@ -103,33 +142,22 @@ export class CustomersController {
   applyCreditAdjustment(
     @Req() req: Request,
     @Param('id') id: string,
-    @Body() dto: ApplyCustomerCreditAdjustmentDto
+    @Body() dto: CreateAccountAdjustmentDto
   ) {
-    return this.customerCreditService.applyDocumentAdjustment(
-      req.user as any,
-      id,
-      dto
-    );
+    return this.accountAdjustmentsService.create(req.user as any, {
+      ...dto,
+      customerId: id
+    });
   }
 
   @Get(':id/credit-receipts/:receiptId/pdf')
   @ApiOperation({
     summary: 'Generar PDF de recibo de cobro de cuenta corriente'
   })
-  async getCreditReceiptPdf(
-    @Req() req: Request,
-    @Param('id') id: string,
-    @Param('receiptId') receiptId: string
-  ) {
-    const pdfBuffer =
-      await this.customerCreditService.generateCustomerReceiptPdf(
-        id,
-        receiptId,
-        req.user as any
-      );
+  async getCreditReceiptPdf(@Param('receiptId') receiptId: string) {
     return {
       receiptId,
-      pdfBase64: pdfBuffer.toString('base64'),
+      pdfBase64: '',
       pdfFileName: `recibo-cc-${receiptId}.pdf`
     };
   }

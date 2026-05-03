@@ -5,12 +5,12 @@ import { CustomersController } from './customers.controller';
 import { Customer } from './entities/customer.entity';
 import { CustomerBranch } from './entities/customer-branch.entity';
 import { Branch } from 'src/branches/entities/branch.entity';
-import { CustomerCreditModule } from 'src/customer-credit/customer-credit.module';
+import { AccountModule } from 'src/account/account.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Customer, CustomerBranch, Branch]),
-    CustomerCreditModule
+    AccountModule
   ],
   controllers: [CustomersController],
   providers: [CustomersService],

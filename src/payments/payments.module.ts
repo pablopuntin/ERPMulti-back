@@ -7,7 +7,7 @@ import { Order } from '../orders/entities/order.entity';
 import { OrdersModule } from '../orders/orders.module';
 import { UsersModule } from '../users/users.module';
 import { CashModule } from '../cash/cash.module';
-import { CustomerCreditModule } from 'src/customer-credit/customer-credit.module';
+import { AccountModule } from 'src/account/account.module';
 
 @Module({
   imports: [
@@ -15,7 +15,7 @@ import { CustomerCreditModule } from 'src/customer-credit/customer-credit.module
     OrdersModule, // para poder inyectar OrdersService y validar orden
     UsersModule, // para validar usuario que paga
     CashModule,
-    CustomerCreditModule
+    AccountModule
   ],
   controllers: [PaymentsController],
   providers: [PaymentsService],
