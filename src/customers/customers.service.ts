@@ -15,6 +15,7 @@ import {
   ensureBranchAccess,
   resolveBranchScope
 } from 'src/common/auth/branch-scope.util';
+import { AccountEntry, AccountEntryStatus } from 'src/account/entities/account-entry.entity';
 
 type ScopedUser = BranchScopedUser;
 
@@ -26,7 +27,9 @@ export class CustomersService {
     @InjectRepository(CustomerBranch)
     private readonly customerBranchRepository: Repository<CustomerBranch>,
     @InjectRepository(Branch)
-    private readonly branchRepository: Repository<Branch>
+    private readonly branchRepository: Repository<Branch>,
+    @InjectRepository(AccountEntry)
+    private readonly accountEntryRepository: Repository<AccountEntry>
   ) {}
 
   private normalizeBranchAssignments(
@@ -123,8 +126,25 @@ export class CustomersService {
     return this.findOne(userScope, savedCustomer.id);
   }
 
-  async findAll(userScope: ScopedUser, branchId?: string, search?: string) {
+  async findAll(
+    userScope: ScopedUser,
+    branchId?: string,
+    search?: string,
+    page: number = 1,
+    limit: number = 20
+  ) {
     const scopedBranchId = this.resolveOperationalBranchId(userScope, branchId);
+
+    if (page < 1) {
+      throw new BadRequestException('page must be at least 1');
+    }
+
+    if (limit < 1 || limit > 100) {
+      throw new BadRequestException('limit must be between 1 and 100');
+    }
+
+    const skip = (page - 1) * limit;
+
     const qb = this.customerRepository
       .createQueryBuilder('customer')
       .leftJoinAndSelect('customer.branchAssignments', 'branchAssignment')
@@ -147,7 +167,23 @@ export class CustomersService {
       );
     }
 
-    return qb.getMany();
+    const [data, total] = await qb.skip(skip).take(limit).getManyAndCount();
+
+    const totalPages = Math.ceil(total / limit);
+
+    if (totalPages > 0 && page > totalPages) {
+      throw new BadRequestException('page exceeds total pages');
+    }
+
+    return {
+      data,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages
+      }
+    };
   }
 
   async findOne(userScope: ScopedUser, id: string, branchId?: string) {

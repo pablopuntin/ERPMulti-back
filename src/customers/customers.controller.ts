@@ -34,12 +34,22 @@ export class CustomersController {
   @ApiOperation({ summary: 'Listar clientes internos' })
   @ApiQuery({ name: 'branchId', required: false, type: String })
   @ApiQuery({ name: 'search', required: false, type: String })
+  @ApiQuery({ name: 'page', required: false, type: Number, example: 1 })
+  @ApiQuery({ name: 'limit', required: false, type: Number, example: 20 })
   findAll(
     @Req() req: Request,
     @Query('branchId') branchId?: string,
-    @Query('search') search?: string
+    @Query('search') search?: string,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number
   ) {
-    return this.customersService.findAll(req.user as any, branchId, search);
+    return this.customersService.findAll(
+      req.user as any,
+      branchId,
+      search,
+      page || 1,
+      limit || 20
+    );
   }
 
   @Get(':id')

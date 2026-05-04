@@ -6,10 +6,11 @@ import { Customer } from './entities/customer.entity';
 import { CustomerBranch } from './entities/customer-branch.entity';
 import { Branch } from 'src/branches/entities/branch.entity';
 import { AccountModule } from 'src/account/account.module';
+import { AccountEntry } from 'src/account/entities/account-entry.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Customer, CustomerBranch, Branch]),
+    TypeOrmModule.forFeature([Customer, CustomerBranch, Branch, AccountEntry]),
     AccountModule
   ],
   controllers: [CustomersController],
