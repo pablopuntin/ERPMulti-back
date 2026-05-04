@@ -47,8 +47,8 @@ export class CustomersController {
       req.user as any,
       branchId,
       search,
-      page || 1,
-      limit || 20
+      page,
+      limit
     );
   }
 

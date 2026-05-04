@@ -45,9 +45,14 @@
   - Indicador "Página X de Y (N clientes en total)"
   - `position: sticky; top: 0`
 - ✅ **Actualizadas llamadas a loadCustomers** después de crear/editar/eliminar para resetear a página 1
+- ✅ **Corregido `loadCreditSummarySnapshots`:** Ahora pasa `resolvedBranchId` a `getAccountStatement`
 - ✅ **Deuda por cliente:** Ya existía llamada a `/account/customers/:customerId/statement` en `loadCreditSummarySnapshots`
 - ✅ **Mostrar deuda:** Ya existía en la lista (línea ~892)
 - ✅ **Loading states:** Ya existían para carga de deuda
+
+### ✅ 5. `front/src/services/api.ts`
+- ✅ **Modificado `getAccountStatement`:** Ahora acepta `branchId` opcional como segundo parámetro
+- ✅ **Pasa branchId como query param** al endpoint `/account/customers/:customerId/statement`
 
 ---
 

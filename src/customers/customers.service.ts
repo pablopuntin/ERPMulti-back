@@ -130,21 +130,67 @@ export class CustomersService {
     userScope: ScopedUser,
     branchId?: string,
     search?: string,
-    page: number = 1,
-    limit: number = 20
+    page?: number,
+    limit?: number
   ) {
     const scopedBranchId = this.resolveOperationalBranchId(userScope, branchId);
 
-    if (page < 1) {
-      throw new BadRequestException('page must be at least 1');
+    // Si no se solicita paginación, usar comportamiento original (backward compatibility)
+    const usePagination = page !== undefined && limit !== undefined;
+
+    if (usePagination) {
+      if (page < 1) {
+        throw new BadRequestException('page must be at least 1');
+      }
+
+      if (limit < 1 || limit > 100) {
+        throw new BadRequestException('limit must be between 1 and 100');
+      }
+
+      const skip = (page - 1) * limit;
+
+      const qb = this.customerRepository
+        .createQueryBuilder('customer')
+        .leftJoinAndSelect('customer.branchAssignments', 'branchAssignment')
+        .leftJoinAndSelect('branchAssignment.branch', 'branch')
+        .where('customer.isActive = :isActive', { isActive: true })
+        .orderBy('customer.fullName', 'ASC');
+
+      qb.andWhere('branchAssignment.branchId = :branchId', {
+        branchId: scopedBranchId
+      });
+      qb.andWhere('branchAssignment.isActive = :assignmentActive', {
+        assignmentActive: true
+      });
+
+      if (search?.trim()) {
+        const query = `%${search.trim()}%`;
+        qb.andWhere(
+          '(customer.fullName ILIKE :query OR customer.document ILIKE :query OR customer.phone ILIKE :query)',
+          { query }
+        );
+      }
+
+      const [data, total] = await qb.skip(skip).take(limit).getManyAndCount();
+
+      const totalPages = Math.ceil(total / limit);
+
+      if (totalPages > 0 && page > totalPages) {
+        throw new BadRequestException('page exceeds total pages');
+      }
+
+      return {
+        data,
+        pagination: {
+          total,
+          page,
+          limit,
+          totalPages
+        }
+      };
     }
 
-    if (limit < 1 || limit > 100) {
-      throw new BadRequestException('limit must be between 1 and 100');
-    }
-
-    const skip = (page - 1) * limit;
-
+    // Comportamiento original sin paginación
     const qb = this.customerRepository
       .createQueryBuilder('customer')
       .leftJoinAndSelect('customer.branchAssignments', 'branchAssignment')
@@ -167,23 +213,7 @@ export class CustomersService {
       );
     }
 
-    const [data, total] = await qb.skip(skip).take(limit).getManyAndCount();
-
-    const totalPages = Math.ceil(total / limit);
-
-    if (totalPages > 0 && page > totalPages) {
-      throw new BadRequestException('page exceeds total pages');
-    }
-
-    return {
-      data,
-      pagination: {
-        total,
-        page,
-        limit,
-        totalPages
-      }
-    };
+    return qb.getMany();
   }
 
   async findOne(userScope: ScopedUser, id: string, branchId?: string) {
