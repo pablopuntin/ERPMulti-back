@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { OrdersService } from './orders.service';
+import { FinalizeSaleUseCase } from './use-cases/finalize-sale.use-case';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
 import { ReviewOrderDto } from './dto/review-order.dto';
@@ -24,7 +25,10 @@ import type { Request } from 'express';
 @UseGuards(AuthGuard('jwt'))
 @Controller('orders')
 export class OrdersController {
-  constructor(private readonly ordersService: OrdersService) {}
+  constructor(
+    private readonly ordersService: OrdersService,
+    private readonly finalizeSaleUseCase: FinalizeSaleUseCase
+  ) {}
 
   @Post()
   @ApiOperation({ summary: 'Crear una nueva orden de venta' })
@@ -110,7 +114,7 @@ export class OrdersController {
     @Param('id') id: string,
     @Body() dto: FinalizeOrderDto
   ) {
-    return this.ordersService.finalizeInCash(req.user as any, id, dto);
+    return this.finalizeSaleUseCase.execute(req.user as any, id, dto);
   }
 
   @Patch(':id')

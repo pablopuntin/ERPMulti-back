@@ -5,7 +5,7 @@ import {
   BadRequestException
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { EntityManager, Repository } from 'typeorm';
 import { Payment, PaymentStatus } from './entities/payment.entity';
 import { CreatePaymentDto } from './dto/create-payment.dto';
 import { ReversePaymentDto } from './dto/reverse-payment.dto';
@@ -57,6 +57,159 @@ export class PaymentsService {
     }
 
     return OrderPaymentStatus.PARTIALLY_PAID;
+  }
+
+  resolveOrderPaymentStatus(order: Order, paymentIncrement = 0) {
+    return this.resolveNextPaymentStatus(order, paymentIncrement);
+  }
+
+  async registerForOrderFinalization(
+    userScope: ScopedUser,
+    order: Order,
+    dto: {
+      payment?: {
+        amount?: number;
+        method?: string;
+        notes?: string;
+        paidByUserId?: string;
+      };
+    }
+  ) {
+    return this.paymentsRepository.manager.transaction(async (manager) =>
+      this.registerForOrderFinalizationTx(manager, userScope, order, dto)
+    );
+  }
+
+  async registerForOrderFinalizationTx(
+    manager: EntityManager,
+    userScope: ScopedUser,
+    order: Order,
+    dto: {
+      payment?: {
+        amount?: number;
+        method?: string;
+        notes?: string;
+        paidByUserId?: string;
+      };
+    }
+  ) {
+    const orderRepo = manager.getRepository(Order);
+    const paymentRepo = manager.getRepository(Payment);
+    const movementRepo = manager.getRepository(CashMovement);
+
+    const lockedOrder = await orderRepo
+      .createQueryBuilder('order')
+      .where('order.id = :id', { id: order.id })
+      .setLock('pessimistic_write')
+      .getOne();
+
+    if (!lockedOrder) {
+      throw new NotFoundException(`Order ${order.id} not found`);
+    }
+
+    const pendingAmount = this.roundCurrency(
+      Math.max(
+        Number(lockedOrder.approvedTotal || lockedOrder.total || 0) -
+          Number(lockedOrder.amountPaid || 0),
+        0
+      )
+    );
+    const requestedPaymentAmount = this.roundCurrency(
+      Number(dto.payment?.amount || 0)
+    );
+    const paymentMethod = dto.payment?.method?.trim() || 'cash';
+    const isCurrentAccount = paymentMethod === 'current_account';
+
+    if (pendingAmount <= 0) {
+      if (requestedPaymentAmount > 0) {
+        throw new BadRequestException(
+          'El remito ya está pago. No se puede registrar un nuevo cobro'
+        );
+      }
+      return false;
+    }
+
+    if (isCurrentAccount && requestedPaymentAmount < 0) {
+      throw new BadRequestException('El monto del pago no puede ser negativo');
+    }
+
+    if (requestedPaymentAmount > pendingAmount) {
+      throw new BadRequestException(
+        `El pago no puede superar el saldo pendiente del remito. Pendiente actual: ${pendingAmount}`
+      );
+    }
+
+    if (
+      !isCurrentAccount &&
+      (!requestedPaymentAmount || requestedPaymentAmount <= 0)
+    ) {
+      throw new BadRequestException('El remito requiere pago total para finalizar');
+    }
+
+    if (
+      !isCurrentAccount &&
+      this.roundCurrency(requestedPaymentAmount - pendingAmount) !== 0
+    ) {
+      throw new BadRequestException(
+        `Debes registrar el pago total pendiente para finalizar. Pendiente actual: ${pendingAmount}`
+      );
+    }
+
+    if (requestedPaymentAmount <= 0) {
+      lockedOrder.paymentStatus = this.resolveNextPaymentStatus(lockedOrder);
+      await orderRepo.save(lockedOrder);
+      return false;
+    }
+
+    const paidByUserId = dto.payment?.paidByUserId;
+
+    if (!paidByUserId) {
+      throw new BadRequestException('No hay usuario válido para registrar el pago');
+    }
+
+    const payment = paymentRepo.create({
+      orderId: lockedOrder.id,
+      order: lockedOrder,
+      amount: requestedPaymentAmount,
+      method: paymentMethod,
+      paidByUserId,
+      branchId: lockedOrder.branchId,
+      notes: dto.payment?.notes?.trim() || undefined
+    });
+
+    const savedPayment = await paymentRepo.save(payment);
+    const register = await this.cashService.getOrCreateOperationalRegisterTx(
+      manager,
+      userScope,
+      lockedOrder.branchId
+    );
+
+    await movementRepo.save(
+      movementRepo.create({
+        amount: requestedPaymentAmount,
+        type: CashMovementType.INCOME,
+        reason: `Pago ${paymentMethod} - Remito ${lockedOrder.remitoNumber || lockedOrder.id}`,
+        register,
+        paymentId: savedPayment.id
+      })
+    );
+
+    lockedOrder.amountPaid = this.roundCurrency(
+      Number(lockedOrder.amountPaid || 0) + requestedPaymentAmount
+    );
+    lockedOrder.paymentStatus = this.resolveNextPaymentStatus(lockedOrder);
+    const savedOrder = await orderRepo.save(lockedOrder);
+
+    await this.accountLedgerService.syncOrderDebt(
+      {
+        order: savedOrder,
+        userId: dto.payment?.paidByUserId || userScope.userId,
+        notes: dto.payment?.notes
+      },
+      manager
+    );
+
+    return true;
   }
 
   async create(userScope: ScopedUser, dto: CreatePaymentDto) {
@@ -164,7 +317,7 @@ export class PaymentsService {
           order: savedOrder,
           userId: dto.paidByUserId,
           notes: dto.notes
-        });
+        }, manager);
 
         return savedPayment.id;
       }

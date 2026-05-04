@@ -61,4 +61,8 @@ export class CreateAccountEntryDto {
   @IsString()
   @IsOptional()
   notes?: string;
+
+  @IsString()
+  @IsOptional()
+  reversedByEntryId?: string;
 }

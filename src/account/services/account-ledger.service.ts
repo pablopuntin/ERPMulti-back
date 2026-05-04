@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, EntityManager, Repository } from 'typeorm';
 import {
   BranchScopedUser,
   ensureBranchAccess,
@@ -29,7 +29,11 @@ export class AccountLedgerService {
     private readonly dataSource: DataSource
   ) {}
 
-  async create(userScope: BranchScopedUser, dto: CreateAccountEntryDto) {
+  async create(
+    userScope: BranchScopedUser,
+    dto: CreateAccountEntryDto,
+    externalManager?: EntityManager
+  ) {
     const branchId = resolveBranchScope(userScope, {
       requestedBranchId: dto.branchId,
       allowGlobal: false,
@@ -43,13 +47,17 @@ export class AccountLedgerService {
       throw new BadRequestException('La sucursal es obligatoria');
     }
 
-    await this.ensureCustomerBelongsToBranch(dto.customerId, branchId);
+    await this.ensureCustomerBelongsToBranch(dto.customerId, branchId, externalManager);
 
     const idempotencyKey =
       dto.idempotencyKey ||
       `${branchId}:${dto.sourceModule}:${dto.sourceEntityType}:${dto.sourceEntityId}:${dto.entryType}:${dto.entryDirection}`;
 
-    const existing = await this.accountEntryRepo.findOne({
+    const repo = externalManager
+      ? externalManager.getRepository(AccountEntry)
+      : this.accountEntryRepo;
+
+    const existing = await repo.findOne({
       where: { idempotencyKey }
     });
 
@@ -57,7 +65,7 @@ export class AccountLedgerService {
       return existing;
     }
 
-    return this.dataSource.transaction(async (manager) => {
+    const run = async (manager: EntityManager) => {
       const lastEntry = await manager.findOne(AccountEntry, {
         where: {
           customerId: dto.customerId,
@@ -71,6 +79,14 @@ export class AccountLedgerService {
         where: { branchId },
         order: { branchScopedSequence: 'DESC' }
       });
+
+      const occurredAt = new Date();
+
+      if (lastEntry && occurredAt < new Date(lastEntry.occurredAt)) {
+        throw new BadRequestException(
+          'No se permiten movimientos con fecha anterior al último movimiento registrado'
+        );
+      }
 
       const amount = this.roundCurrency(Number(dto.amount));
       const signedAmount =
@@ -91,16 +107,19 @@ export class AccountLedgerService {
         sourceEntityId: dto.sourceEntityId,
         idempotencyKey,
         branchScopedSequence: Number(lastBranchEntry?.branchScopedSequence || 0) + 1,
-        occurredAt: new Date(),
+        occurredAt,
         createdByUserId: userScope.userId || dto.cashierUserId,
         cashierUserId: dto.cashierUserId,
         reasonCode: dto.reasonCode,
         reasonText: dto.reasonText,
-        notes: dto.notes
+        notes: dto.notes,
+        reversedByEntryId: dto.reversedByEntryId
       });
 
       return manager.save(AccountEntry, entry);
-    });
+    };
+
+    return externalManager ? run(externalManager) : this.dataSource.transaction(run);
   }
 
   async findAll(userScope: BranchScopedUser, filters: ListAccountEntriesDto = {}) {
@@ -165,7 +184,7 @@ export class AccountLedgerService {
     order: Order;
     userId?: string;
     notes?: string;
-  }) {
+  }, externalManager?: EntityManager) {
     const { order, userId, notes } = params;
 
     if (!order.customerId || !order.branchId) {
@@ -187,39 +206,47 @@ export class AccountLedgerService {
       branchId: order.branchId
     };
 
-    const debitEntry = await this.create(userScope, {
-      customerId: order.customerId,
-      branchId: order.branchId,
-      entryType: AccountEntryType.SALE_CHARGE,
-      entryDirection: AccountEntryDirection.DEBIT,
-      amount: approvedAmount,
-      sourceModule: AccountEntrySourceModule.SALES,
-      sourceEntityType: 'order',
-      sourceEntityId: order.id,
-      idempotencyKey: `${order.branchId}:order:${order.id}:sale_charge`,
-      reasonCode: 'order_debt',
-      reasonText: `Deuda generada por remito ${order.remitoNumber || order.id}`,
-      notes
-    });
+    const debitEntry = await this.create(
+      userScope,
+      {
+        customerId: order.customerId,
+        branchId: order.branchId,
+        entryType: AccountEntryType.SALE_CHARGE,
+        entryDirection: AccountEntryDirection.DEBIT,
+        amount: approvedAmount,
+        sourceModule: AccountEntrySourceModule.SALES,
+        sourceEntityType: 'order',
+        sourceEntityId: order.id,
+        idempotencyKey: `${order.branchId}:order:${order.id}:sale_charge`,
+        reasonCode: 'order_debt',
+        reasonText: `Deuda generada por remito ${order.remitoNumber || order.id}`,
+        notes
+      },
+      externalManager
+    );
 
     if (amountPaid <= 0) {
       return debitEntry;
     }
 
-    return this.create(userScope, {
-      customerId: order.customerId,
-      branchId: order.branchId,
-      entryType: AccountEntryType.PAYMENT,
-      entryDirection: AccountEntryDirection.CREDIT,
-      amount: amountPaid,
-      sourceModule: AccountEntrySourceModule.PAYMENTS,
-      sourceEntityType: 'order_payment_total',
-      sourceEntityId: order.id,
-      idempotencyKey: `${order.branchId}:order:${order.id}:payment_total:${amountPaid}`,
-      reasonCode: 'order_payment',
-      reasonText: `Cobro aplicado al remito ${order.remitoNumber || order.id}`,
-      notes
-    });
+    return this.create(
+      userScope,
+      {
+        customerId: order.customerId,
+        branchId: order.branchId,
+        entryType: AccountEntryType.PAYMENT,
+        entryDirection: AccountEntryDirection.CREDIT,
+        amount: amountPaid,
+        sourceModule: AccountEntrySourceModule.PAYMENTS,
+        sourceEntityType: 'order_payment_total',
+        sourceEntityId: order.id,
+        idempotencyKey: `${order.branchId}:order:${order.id}:payment_total:${amountPaid}`,
+        reasonCode: 'order_payment',
+        reasonText: `Cobro aplicado al remito ${order.remitoNumber || order.id}`,
+        notes
+      },
+      externalManager
+    );
   }
 
   async reversePayment(params: {
@@ -227,63 +254,97 @@ export class AccountLedgerService {
     userScope: BranchScopedUser;
     reason?: string;
   }) {
-    const payment = await this.dataSource.getRepository(Payment).findOne({
-      where: { id: params.paymentId },
-      relations: ['order']
-    });
+    return this.dataSource.transaction(async (manager) => {
+      const payment = await manager.findOne(Payment, {
+        where: { id: params.paymentId },
+        relations: ['order']
+      });
 
-    if (!payment) {
-      throw new BadRequestException('Payment not found');
-    }
+      if (!payment) {
+        throw new BadRequestException('Payment not found');
+      }
 
-    ensureBranchAccess(
-      params.userScope,
-      payment.branchId,
-      'No tienes acceso a los pagos de esta sucursal'
-    );
-
-    if (payment.status === PaymentStatus.REVERSED) {
-      throw new BadRequestException('El pago ya fue revertido');
-    }
-
-    const order = payment.order;
-
-    if (!order?.customerId || !order.branchId) {
-      throw new BadRequestException(
-        'El pago no tiene una orden con cliente y sucursal válidos'
+      ensureBranchAccess(
+        params.userScope,
+        payment.branchId,
+        'No tienes acceso a los pagos de esta sucursal'
       );
-    }
 
-    const entry = await this.create(params.userScope, {
-      customerId: order.customerId,
-      branchId: order.branchId,
-      entryType: AccountEntryType.PAYMENT_REVERSAL,
-      entryDirection: AccountEntryDirection.DEBIT,
-      amount: Number(payment.amount || 0),
-      sourceModule: AccountEntrySourceModule.PAYMENTS,
-      sourceEntityType: 'payment_reversal',
-      sourceEntityId: payment.id,
-      idempotencyKey: `${order.branchId}:payment:${payment.id}:reversal`,
-      reasonCode: 'payment_reversal',
-      reasonText: params.reason || 'Reversión administrativa del pago'
+      if (payment.status === PaymentStatus.REVERSED) {
+        throw new BadRequestException('El pago ya fue revertido');
+      }
+
+      const order = payment.order;
+
+      if (!order?.customerId || !order.branchId) {
+        throw new BadRequestException(
+          'El pago no tiene una orden con cliente y sucursal válidos'
+        );
+      }
+
+      const originalEntry = await manager.findOne(AccountEntry, {
+        where: {
+          sourceModule: AccountEntrySourceModule.PAYMENTS,
+          sourceEntityType: 'order_payment_total',
+          sourceEntityId: order.id,
+          entryType: AccountEntryType.PAYMENT,
+          status: AccountEntryStatus.ACTIVE
+        },
+        order: { createdAt: 'DESC' }
+      });
+
+      if (!originalEntry) {
+        throw new BadRequestException(
+          'No se encontró el asiento original del pago para reversar'
+        );
+      }
+
+      const entry = await this.create(params.userScope, {
+        customerId: order.customerId,
+        branchId: order.branchId,
+        entryType: AccountEntryType.PAYMENT_REVERSAL,
+        entryDirection: AccountEntryDirection.DEBIT,
+        amount: Number(payment.amount || 0),
+        sourceModule: AccountEntrySourceModule.PAYMENTS,
+        sourceEntityType: 'payment_reversal',
+        sourceEntityId: payment.id,
+        idempotencyKey: `${order.branchId}:payment:${payment.id}:reversal`,
+        reasonCode: 'payment_reversal',
+        reasonText: params.reason || 'Reversión administrativa del pago',
+        reversedByEntryId: originalEntry.id
+      }, manager);
+
+      originalEntry.status = AccountEntryStatus.VOIDED;
+      originalEntry.voidedAt = new Date();
+      originalEntry.voidedByUserId = params.userScope.userId;
+      originalEntry.voidReason = params.reason || 'Reversión administrativa del pago';
+      originalEntry.reversedByEntryId = entry.id;
+      await manager.save(AccountEntry, originalEntry);
+
+      payment.status = PaymentStatus.REVERSED;
+      payment.reversedAt = new Date();
+      payment.reversedByUserId = params.userScope.userId;
+      payment.reversalReason = params.reason || 'Reversión administrativa del pago';
+      await manager.save(Payment, payment);
+
+      return {
+        entry,
+        paymentId: payment.id,
+        orderId: order.id,
+        receiptIds: []
+      };
     });
-
-    payment.status = PaymentStatus.REVERSED;
-    payment.reversedAt = new Date();
-    payment.reversedByUserId = params.userScope.userId;
-    payment.reversalReason = params.reason || 'Reversión administrativa del pago';
-    await this.dataSource.getRepository(Payment).save(payment);
-
-    return {
-      entry,
-      paymentId: payment.id,
-      orderId: order.id,
-      receiptIds: []
-    };
   }
 
-  private async ensureCustomerBelongsToBranch(customerId: string, branchId: string) {
-    const assignment = await this.customerBranchRepo.findOne({
+  private async ensureCustomerBelongsToBranch(
+    customerId: string,
+    branchId: string,
+    externalManager?: EntityManager
+  ) {
+    const repo = externalManager
+      ? externalManager.getRepository(CustomerBranch)
+      : this.customerBranchRepo;
+    const assignment = await repo.findOne({
       where: { customerId, branchId, isActive: true }
     });
 

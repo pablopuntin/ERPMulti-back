@@ -16,6 +16,9 @@ import { AccountModule } from 'src/account/account.module';
 import { Branch } from 'src/branches/entities/branch.entity';
 import { SalesModule } from 'src/sales/sales.module';
 import { RemitosModule } from 'src/remitos/remitos.module';
+import { OperationAttempt } from 'src/common/entities/operation-attempt.entity';
+import { PaymentsModule } from 'src/payments/payments.module';
+import { FinalizeSaleUseCase } from './use-cases/finalize-sale.use-case';
 
 @Module({
   imports: [
@@ -28,16 +31,18 @@ import { RemitosModule } from 'src/remitos/remitos.module';
       User,
       Customer,
       Payment,
-      Branch
+      Branch,
+      OperationAttempt
     ]),
     StockModule,
     CashModule,
     AccountModule,
+    PaymentsModule,
     SalesModule,
     RemitosModule
   ],
   controllers: [OrdersController],
-  providers: [OrdersService],
+  providers: [OrdersService, FinalizeSaleUseCase],
   exports: [OrdersService]
 })
 export class OrdersModule {}

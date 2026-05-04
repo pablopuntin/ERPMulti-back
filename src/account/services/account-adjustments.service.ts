@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import {
   BranchScopedUser,
   resolveBranchScope
@@ -18,7 +18,8 @@ export class AccountAdjustmentsService {
   constructor(
     @InjectRepository(AccountAdjustment)
     private readonly accountAdjustmentRepo: Repository<AccountAdjustment>,
-    private readonly accountLedgerService: AccountLedgerService
+    private readonly accountLedgerService: AccountLedgerService,
+    private readonly dataSource: DataSource
   ) {}
 
   async create(userScope: BranchScopedUser, dto: CreateAccountAdjustmentDto) {
@@ -31,38 +32,45 @@ export class AccountAdjustmentsService {
         'No tienes acceso a la sucursal solicitada para crear ajustes de cuenta corriente'
     });
 
-    const adjustment = await this.accountAdjustmentRepo.save(
-      this.accountAdjustmentRepo.create({
-        branchId,
-        customerId: dto.customerId,
-        adjustmentType: dto.adjustmentType,
-        direction: dto.direction,
-        amount: dto.amount,
-        reason: dto.reason,
-        authorizedByUserId: dto.authorizedByUserId,
-        createdByUserId: userScope.userId,
-        notes: dto.notes
-      })
-    );
+    return this.dataSource.transaction(async (manager) => {
+      const adjustment = await manager.save(
+        AccountAdjustment,
+        manager.create(AccountAdjustment, {
+          branchId,
+          customerId: dto.customerId,
+          adjustmentType: dto.adjustmentType,
+          direction: dto.direction,
+          amount: dto.amount,
+          reason: dto.reason,
+          authorizedByUserId: dto.authorizedByUserId,
+          createdByUserId: userScope.userId,
+          notes: dto.notes
+        })
+      );
 
-    const entry = await this.accountLedgerService.create(userScope, {
-      customerId: dto.customerId,
-      branchId,
-      entryType:
-        dto.direction === 'debit'
-          ? AccountEntryType.ADJUSTMENT_DEBIT
-          : AccountEntryType.ADJUSTMENT_CREDIT,
-      entryDirection: dto.direction,
-      amount: dto.amount,
-      sourceModule: AccountEntrySourceModule.ACCOUNT,
-      sourceEntityType: 'account_adjustment',
-      sourceEntityId: adjustment.id,
-      reasonCode: dto.adjustmentType,
-      reasonText: dto.reason,
-      notes: dto.notes
+      const entry = await this.accountLedgerService.create(
+        userScope,
+        {
+          customerId: dto.customerId,
+          branchId,
+          entryType:
+            dto.direction === 'debit'
+              ? AccountEntryType.ADJUSTMENT_DEBIT
+              : AccountEntryType.ADJUSTMENT_CREDIT,
+          entryDirection: dto.direction,
+          amount: dto.amount,
+          sourceModule: AccountEntrySourceModule.ACCOUNT,
+          sourceEntityType: 'account_adjustment',
+          sourceEntityId: adjustment.id,
+          reasonCode: dto.adjustmentType,
+          reasonText: dto.reason,
+          notes: dto.notes
+        },
+        manager
+      );
+
+      adjustment.entryId = entry.id;
+      return manager.save(AccountAdjustment, adjustment);
     });
-
-    adjustment.entryId = entry.id;
-    return this.accountAdjustmentRepo.save(adjustment);
   }
 }
