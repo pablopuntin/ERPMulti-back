@@ -58,7 +58,6 @@ import { Branch } from 'src/branches/entities/branch.entity';
 import { StockLocation } from 'src/branches/entities/stock-location.entity'; //
 import { StockTransfer } from './entities/stock-transfer.entity';
 import { SuppliersModule } from 'src/suppliers/suppliers.module';
-import { ProductsBaseModule } from 'src/products-base/products-base.module';
 
 @Module({
   imports: [
@@ -72,8 +71,7 @@ import { ProductsBaseModule } from 'src/products-base/products-base.module';
       Branch,
       StockLocation //
     ]),
-    forwardRef(() => SuppliersModule), //
-    ProductsBaseModule //
+    forwardRef(() => SuppliersModule)
   ],
 
   controllers: [StockController],

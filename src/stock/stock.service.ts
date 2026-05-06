@@ -18,9 +18,9 @@ import { Supplier } from 'src/suppliers/entities/supplier.entity';
 import { User } from 'src/users/entities/user.entity';
 import { StockAlert } from './entities/stock-alert.entity'; // ⚠️ Nueva entidad para alertas
 import { Branch } from 'src/branches/entities/branch.entity';
-import { ProductsBaseService } from 'src/products-base/products-base.service';
 import { StockLocation } from 'src/branches/entities/stock-location.entity';
 import { StockLocationType } from 'src/branches/entities/stock-location.entity';
+import { In } from 'typeorm';
 
 @Injectable()
 export class StockService {
@@ -47,9 +47,7 @@ export class StockService {
     private readonly alertRepo: Repository<StockAlert>,
 
     @InjectRepository(StockLocation)
-    private readonly stockLocationRepo: Repository<StockLocation>,
-
-    private readonly productsBaseService: ProductsBaseService
+    private readonly stockLocationRepo: Repository<StockLocation>
   ) {}
 
   /** 🔍 Reutilizable: busca cualquier entidad o lanza excepción si no existe */
@@ -526,9 +524,7 @@ export class StockService {
       : undefined;
 
     // 🧮 Obtener stock actual desde StockLocations
-    const currentStock = await this.productsBaseService.calculateTotalStock(
-      dto.variantId
-    );
+    const currentStock = await this.calculateTotalStock(dto.variantId);
 
     // 🧮 Validar y ajustar stock según el movimiento
     if (dto.type === StockMovementType.EXIT) {
@@ -565,9 +561,7 @@ export class StockService {
           : dto.quantity;
 
     // 🚨 Usar nuevo método de verificación de stock bajo
-    const stockCheck = await this.productsBaseService.checkLowStock(
-      dto.variantId
-    );
+    const stockCheck = await this.checkLowStock(dto.variantId);
 
     // 📢 Crear alertas para cada ubicación con stock bajo y stock total bajo
     if (stockCheck.alerts.length > 0) {
@@ -577,6 +571,113 @@ export class StockService {
     }
 
     return movement;
+  }
+
+  async calculateTotalStock(variantId: string): Promise<number> {
+    const stockLocations = await this.stockLocationRepo.find({
+      where: {
+        productVariant: { id: variantId },
+        isActive: true,
+        locationType: In([StockLocationType.BRANCH, StockLocationType.WAREHOUSE])
+      }
+    });
+    return stockLocations.reduce(
+      (total, s) => total + Number(s.availableQuantity ?? 0),
+      0
+    );
+  }
+
+  async checkLowStock(variantId: string): Promise<{
+    locationStocks: Array<{
+      branchName: string;
+      locationType: 'branch' | 'warehouse';
+      quantity: number;
+      minStock: number;
+      isLow: boolean;
+      alertMessage?: string;
+    }>;
+    totalStock: {
+      quantity: number;
+      minStock: number;
+      isLow: boolean;
+      alertMessage?: string;
+    };
+    transitStock: {
+      quantity: number;
+      infoMessage: string;
+    };
+    alerts: string[];
+  }> {
+    const variant = await this.variantRepo.findOne({
+      where: { id: variantId, isActive: true },
+      relations: ['stockLocations', 'stockLocations.branch']
+    });
+
+    if (!variant) {
+      throw new NotFoundException('Variant not found');
+    }
+
+    const stockLocations = variant.stockLocations.filter((sl) => sl.isActive);
+    const alerts: string[] = [];
+
+    const locationStocks = stockLocations
+      .filter(
+        (sl) =>
+          sl.locationType === StockLocationType.BRANCH ||
+          sl.locationType === StockLocationType.WAREHOUSE
+      )
+      .map((sl) => {
+        const isLow = sl.availableQuantity <= (sl.minStock || variant.minStock);
+        const alertMessage = isLow
+          ? `⚠️ Stock bajo en ${sl.branch?.name || 'Depósito'}: ${sl.availableQuantity}/${sl.minStock || variant.minStock}`
+          : undefined;
+
+        if (isLow) alerts.push(alertMessage!);
+
+        return {
+          branchName: sl.branch?.name || 'Depósito',
+          locationType: sl.locationType as 'branch' | 'warehouse',
+          quantity: sl.availableQuantity,
+          minStock: sl.minStock || variant.minStock,
+          isLow,
+          alertMessage
+        };
+      });
+
+    const totalQuantity = locationStocks.reduce(
+      (total, ls) => total + ls.quantity,
+      0
+    );
+    const isTotalLow = totalQuantity <= variant.minStock;
+    const totalAlertMessage = isTotalLow
+      ? `🚨 Stock total bajo: ${totalQuantity}/${variant.minStock} unidades`
+      : undefined;
+
+    if (isTotalLow) alerts.push(totalAlertMessage!);
+
+    const transitQuantity = stockLocations
+      .filter((sl) => sl.locationType === StockLocationType.TRANSIT)
+      .reduce((total, sl) => total + sl.availableQuantity, 0);
+
+    const transitInfoMessage =
+      transitQuantity > 0
+        ? `🚚 Tienes ${transitQuantity} unidades en tránsito`
+        : '🚚 No hay unidades en tránsito';
+
+    return {
+      locationStocks,
+      totalStock: {
+        quantity: totalQuantity,
+        minStock: variant.minStock,
+        isLow: isTotalLow,
+        alertMessage: totalAlertMessage
+      },
+      transitStock: {
+        quantity: transitQuantity,
+        infoMessage: transitInfoMessage
+      },
+      alerts
+    };
   }
 
   /** 🚨 Crear alerta de stock bajo (mejorado) */
