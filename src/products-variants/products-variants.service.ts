@@ -18,7 +18,6 @@ import { PriceHistoryService } from 'src/price-history/price-history.service';
 import { StockLocation } from 'src/branches/entities/stock-location.entity';
 import { StockLocationType } from 'src/branches/entities/stock-location.entity';
 import { Branch } from 'src/branches/entities/branch.entity';
-import { ProductVariantBranch } from './entities/product-variant-branch.entity';
 import { resolveBranchScope, type BranchScopedUser } from 'src/common/auth/branch-scope.util';
 import { StockService } from 'src/stock/stock.service';
 
@@ -33,9 +32,6 @@ export class ProductsVariantsService {
 
     @InjectRepository(StockLocation)
     private readonly stockLocationRepo: Repository<StockLocation>,
-
-    @InjectRepository(ProductVariantBranch)
-    private readonly variantBranchRepo: Repository<ProductVariantBranch>,
 
     @InjectRepository(Branch)
     private readonly branchRepo: Repository<Branch>,
@@ -71,38 +67,7 @@ export class ProductsVariantsService {
     variant: ProductVariant,
     branchId: string
   ) {
-    const branch = await this.branchRepo.findOne({
-      where: { id: branchId, isActive: true }
-    });
-
-    if (!branch) {
-      throw new BadRequestException('La sucursal activa no existe o está inactiva');
-    }
-
-    const existingAssignment = await this.variantBranchRepo.findOne({
-      where: {
-        variantId: variant.id,
-        branchId: branch.id
-      }
-    });
-
-    if (existingAssignment) {
-      if (!existingAssignment.isActive) {
-        existingAssignment.isActive = true;
-        await this.variantBranchRepo.save(existingAssignment);
-      }
-      return existingAssignment;
-    }
-
-    const createdAssignment = this.variantBranchRepo.create({
-      variantId: variant.id,
-      branchId: branch.id,
-      isActive: true,
-      variant,
-      branch
-    });
-
-    return this.variantBranchRepo.save(createdAssignment);
+    return this.stockService.ensureVariantAssignment(variant, branchId);
   }
 
   private async syncStockSalePrice(variantId: string, newPrice: number) {

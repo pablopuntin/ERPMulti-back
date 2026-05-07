@@ -20,7 +20,6 @@ import { StockModule } from 'src/stock/stock.module';
       Brand,
       Category,
       ProductVariant,
-      ProductVariantBranch,
       StockLocation,
       Branch
     ]),

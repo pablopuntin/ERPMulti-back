@@ -14,6 +14,7 @@ import { CreateStockMovementDto } from './dto/create-stock.dto';
 import { TransferStockDto } from './dto/transfer-stock.dto';
 import { UpdateStockMovementDto } from './dto/update-stock.dto';
 import { ProductVariant } from 'src/products-variants/entities/products-variant.entity';
+import { ProductVariantBranch } from 'src/products-variants/entities/product-variant-branch.entity';
 import { Supplier } from 'src/suppliers/entities/supplier.entity';
 import { User } from 'src/users/entities/user.entity';
 import { StockAlert } from './entities/stock-alert.entity'; // ⚠️ Nueva entidad para alertas
@@ -47,7 +48,10 @@ export class StockService {
     private readonly alertRepo: Repository<StockAlert>,
 
     @InjectRepository(StockLocation)
-    private readonly stockLocationRepo: Repository<StockLocation>
+    private readonly stockLocationRepo: Repository<StockLocation>,
+
+    @InjectRepository(ProductVariantBranch)
+    private readonly variantBranchRepo: Repository<ProductVariantBranch>
   ) {}
 
   /** 🔍 Reutilizable: busca cualquier entidad o lanza excepción si no existe */
@@ -571,6 +575,44 @@ export class StockService {
     }
 
     return movement;
+  }
+
+  async ensureVariantAssignment(
+    variant: ProductVariant,
+    branchId: string,
+    branch?: Branch | null
+  ): Promise<ProductVariantBranch> {
+    const resolvedBranch =
+      branch ??
+      (await this.branchRepo.findOne({
+        where: { id: branchId, isActive: true }
+      }));
+
+    if (!resolvedBranch) {
+      throw new BadRequestException('La sucursal activa no existe o está inactiva');
+    }
+
+    const existing = await this.variantBranchRepo.findOne({
+      where: { variantId: variant.id, branchId: resolvedBranch.id }
+    });
+
+    if (existing) {
+      if (!existing.isActive) {
+        existing.isActive = true;
+        await this.variantBranchRepo.save(existing);
+      }
+      return existing;
+    }
+
+    const created = this.variantBranchRepo.create({
+      variantId: variant.id,
+      branchId: resolvedBranch.id,
+      isActive: true,
+      variant,
+      branch: resolvedBranch
+    });
+
+    return this.variantBranchRepo.save(created);
   }
 
   async createStockLocation(dto: {

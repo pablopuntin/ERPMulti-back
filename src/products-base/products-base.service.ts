@@ -41,9 +41,6 @@ export class ProductsBaseService {
     @InjectRepository(ProductVariant)
     private readonly variantsRepository: Repository<ProductVariant>,
 
-    @InjectRepository(ProductVariantBranch)
-    private readonly variantBranchRepository: Repository<ProductVariantBranch>,
-
     @InjectRepository(Branch)
     private readonly branchesRepository: Repository<Branch>,
 
@@ -76,42 +73,9 @@ export class ProductsBaseService {
   private async ensureVariantAssignment(
     variant: ProductVariant,
     branchId: string,
-    branch?: Branch | null,
-    repo: Repository<ProductVariantBranch> = this.variantBranchRepository
+    branch?: Branch | null
   ) {
-    const resolvedBranch = branch
-      ?? (await this.branchesRepository.findOne({
-        where: { id: branchId, isActive: true }
-      }));
-
-    if (!resolvedBranch) {
-      throw new BadRequestException('La sucursal activa no existe o está inactiva');
-    }
-
-    const existingAssignment = await repo.findOne({
-      where: {
-        variantId: variant.id,
-        branchId: resolvedBranch.id
-      }
-    });
-
-    if (existingAssignment) {
-      if (!existingAssignment.isActive) {
-        existingAssignment.isActive = true;
-        await repo.save(existingAssignment);
-      }
-      return existingAssignment;
-    }
-
-    const createdAssignment = repo.create({
-      variantId: variant.id,
-      branchId: resolvedBranch.id,
-      isActive: true,
-      variant,
-      branch: resolvedBranch
-    });
-
-    return repo.save(createdAssignment);
+    return this.stockService.ensureVariantAssignment(variant, branchId, branch);
   }
 
   private normalizeImportText(value?: string | null) {
@@ -634,8 +598,7 @@ export class ProductsBaseService {
             await this.ensureVariantAssignment(
               variant,
               activeBranch.id,
-              activeBranch,
-              variantBranchRepo
+              activeBranch
             );
 
             if (locationName) {
@@ -1130,107 +1093,8 @@ export class ProductsBaseService {
   // ---------------------------------------------------------------------------
   // MÉTODO AUXILIAR - Verificar stock bajo por ubicación y total
   // ---------------------------------------------------------------------------
-  async checkLowStock(variantId: string): Promise<{
-    // 🏪 Stock por sucursal/deposito
-    locationStocks: Array<{
-      branchName: string;
-      locationType: 'branch' | 'warehouse';
-      quantity: number;
-      minStock: number;
-      isLow: boolean;
-      alertMessage?: string;
-    }>;
-
-    // 📊 Stock total (sin tránsito)
-    totalStock: {
-      quantity: number;
-      minStock: number;
-      isLow: boolean;
-      alertMessage?: string;
-    };
-
-    // 🚚 Stock en tránsito (solo informativo)
-    transitStock: {
-      quantity: number;
-      infoMessage: string;
-    };
-
-    // 🚨 Alertas generadas
-    alerts: string[];
-  }> {
-    const variant = await this.variantsRepository.findOne({
-      where: { id: variantId, isActive: true },
-      relations: ['stockLocations', 'stockLocations.branch']
-    });
-
-    if (!variant) {
-      throw new NotFoundException('Variant not found');
-    }
-
-    const stockLocations = variant.stockLocations.filter((sl) => sl.isActive);
-    const alerts: string[] = [];
-
-    // 🏪 Separar stocks por tipo
-    const locationStocks = stockLocations
-      .filter(
-        (sl) =>
-          sl.locationType === StockLocationType.BRANCH ||
-          sl.locationType === StockLocationType.WAREHOUSE
-      )
-      .map((sl) => {
-        const isLow = sl.availableQuantity <= (sl.minStock || variant.minStock);
-        const alertMessage = isLow
-          ? `⚠️ Stock bajo en ${sl.branch?.name || 'Depósito'}: ${sl.availableQuantity}/${sl.minStock || variant.minStock}`
-          : undefined;
-
-        if (isLow) alerts.push(alertMessage!);
-
-        return {
-          branchName: sl.branch?.name || 'Depósito',
-          locationType: sl.locationType as 'branch' | 'warehouse',
-          quantity: sl.availableQuantity,
-          minStock: sl.minStock || variant.minStock,
-          isLow,
-          alertMessage
-        };
-      });
-
-    // 📊 Calcular stock total (sin tránsito)
-    const totalQuantity = locationStocks.reduce(
-      (total, ls) => total + ls.quantity,
-      0
-    );
-    const isTotalLow = totalQuantity <= variant.minStock;
-    const totalAlertMessage = isTotalLow
-      ? `🚨 Stock total bajo: ${totalQuantity}/${variant.minStock} unidades`
-      : undefined;
-
-    if (isTotalLow) alerts.push(totalAlertMessage!);
-
-    // 🚚 Stock en tránsito (solo informativo)
-    const transitQuantity = stockLocations
-      .filter((sl) => sl.locationType === StockLocationType.TRANSIT)
-      .reduce((total, sl) => total + sl.availableQuantity, 0);
-
-    const transitInfoMessage =
-      transitQuantity > 0
-        ? `🚚 Tienes ${transitQuantity} unidades en tránsito`
-        : '🚚 No hay unidades en tránsito';
-
-    return {
-      locationStocks,
-      totalStock: {
-        quantity: totalQuantity,
-        minStock: variant.minStock,
-        isLow: isTotalLow,
-        alertMessage: totalAlertMessage
-      },
-      transitStock: {
-        quantity: transitQuantity,
-        infoMessage: transitInfoMessage
-      },
-      alerts
-    };
+  async checkLowStock(variantId: string) {
+    return this.stockService.checkLowStock(variantId);
   }
 
   // ---------------------------------------------------------------------------

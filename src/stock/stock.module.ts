@@ -55,8 +55,9 @@ import { ProductVariant } from 'src/products-variants/entities/products-variant.
 import { Supplier } from 'src/suppliers/entities/supplier.entity';
 import { User } from 'src/users/entities/user.entity';
 import { Branch } from 'src/branches/entities/branch.entity';
-import { StockLocation } from 'src/branches/entities/stock-location.entity'; //
+import { StockLocation } from 'src/branches/entities/stock-location.entity';
 import { StockTransfer } from './entities/stock-transfer.entity';
+import { ProductVariantBranch } from 'src/products-variants/entities/product-variant-branch.entity';
 import { SuppliersModule } from 'src/suppliers/suppliers.module';
 
 @Module({
@@ -69,7 +70,8 @@ import { SuppliersModule } from 'src/suppliers/suppliers.module';
       Supplier,
       User,
       Branch,
-      StockLocation //
+      StockLocation,
+      ProductVariantBranch
     ]),
     forwardRef(() => SuppliersModule)
   ],
