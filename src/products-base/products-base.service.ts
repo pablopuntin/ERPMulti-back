@@ -609,8 +609,6 @@ export class ProductsBaseService {
                 minStock,
                 imgURL:
                   'https://png.pngtree.com/png-vector/20221125/ourmid/pngtree-no-image-available-icon-flatvector-illustration-pic-design-profile-vector-png-image_40966566.jpg',
-                category,
-                brand,
                 productBase,
                 isActive: true
               });
@@ -622,8 +620,6 @@ export class ProductsBaseService {
               variant.price = salePrice;
               variant.purchasePrice = purchasePrice;
               variant.minStock = minStock;
-              variant.category = category;
-              variant.brand = brand;
               variant.productBase = productBase;
               if (!variant.isActive) {
                 variant.isActive = true;
@@ -1071,19 +1067,15 @@ export class ProductsBaseService {
       this.generateSKU(productBase.name, productBase.brand?.name || 'GEN');
     const resolvedVariantName = variantData.name?.trim() || productBase.name;
 
-    // 3️⃣ Crear la variante con category y brand heredados
+    // 3️⃣ Crear la variante
     const newVariant = this.variantsRepository.create({
       name: resolvedVariantName,
       price: variantData.price,
       purchasePrice: variantData.purchasePrice ?? 0,
-      // ❌ Eliminar stock - se maneja en StockLocation
-      // stock: variantData.stock,
       minStock: variantData.minStock || 5,
       imgURL:
         'https://png.pngtree.com/png-vector/20221125/ourmid/pngtree-no-image-available-icon-flatvector-illustration-pic-design-profile-vector-png-image_40966566.jpg',
       sku: generatedSku,
-      category: productBase.category, // Heredar del ProductBase
-      brand: productBase.brand, // Heredar del ProductBase
       productBase: productBase,
       isActive: true
     });
@@ -1385,8 +1377,8 @@ export class ProductsBaseService {
         );
 
         return [
-          productBase.category?.name || variant.category?.name || '',
-          productBase.brand?.name || variant.brand?.name || '',
+          productBase.category?.name || '',
+          productBase.brand?.name || '',
           productBase.name || '',
           variant.name || productBase.name || '',
           variant.sku || '',
@@ -1524,7 +1516,7 @@ export class ProductsBaseService {
       this.generateSKU(productBase.name, productBase.brand?.name || 'GEN');
     const resolvedVariantName = dto.name?.trim() || productBase.name;
 
-    // 3️⃣ Crear la variante con category y brand heredados
+    // 3️⃣ Crear la variante
     const newVariant = this.variantsRepository.create({
       name: resolvedVariantName,
       price: dto.price,
@@ -1533,8 +1525,6 @@ export class ProductsBaseService {
       imgURL:
         'https://png.pngtree.com/png-vector/20221125/ourmid/pngtree-no-image-available-icon-flatvector-illustration-pic-design-profile-vector-png-image_40966566.jpg',
       sku: generatedSku,
-      category: productBase.category, // Heredar del ProductBase
-      brand: productBase.brand, // Heredar del ProductBase
       productBase: productBase,
       isActive: true
     });

@@ -12,8 +12,6 @@ import { ApiProperty } from '@nestjs/swagger';
 import { SupplierProduct } from 'src/suppliers/entities/supplier-product.entity';
 import { StockMovement } from 'src/stock/entities/stock.entity';
 import { StockLocation } from 'src/branches/entities/stock-location.entity';
-import { Category } from 'src/categories/entities/category.entity';
-import { Brand } from 'src/brands/entities/brand.entity';
 import { ProductVariantBranch } from './product-variant-branch.entity';
 
 @Entity({ name: 'productvariants' })
@@ -59,16 +57,6 @@ export class ProductVariant {
   })
   @Column({ default: true })
   isActive: boolean;
-
-  // ✅ Relación con Category (para filtrado directo)
-  @ManyToOne(() => Category, { onDelete: 'SET NULL' })
-  @JoinColumn({ name: 'category_id' })
-  category: Category;
-
-  // ✅ Relación con Brand (para filtrado directo)
-  @ManyToOne(() => Brand, { onDelete: 'SET NULL' })
-  @JoinColumn({ name: 'brand_id' })
-  brand: Brand;
 
   // ✅ Relación con ProductBase
   @ManyToOne(() => ProductsBase, (productBase) => productBase.variants, {

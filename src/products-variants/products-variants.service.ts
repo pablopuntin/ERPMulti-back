@@ -234,8 +234,8 @@ export class ProductsVariantsService {
     return await this.variantRepo.find({
       relations: [
         'productBase',
-        'category',
-        'brand',
+        'productBase.category',
+        'productBase.brand',
         'stockLocations',
         'stockLocations.branch'
       ],
@@ -255,8 +255,8 @@ export class ProductsVariantsService {
     const qb = this.variantRepo
       .createQueryBuilder('variant')
       .leftJoinAndSelect('variant.productBase', 'productBase')
-      .leftJoinAndSelect('variant.category', 'category')
-      .leftJoinAndSelect('variant.brand', 'brand')
+      .leftJoinAndSelect('productBase.category', 'category')
+      .leftJoinAndSelect('productBase.brand', 'brand')
       .innerJoin('variant.branchAssignments', 'branchAssignment')
       .where('variant.isActive = :isActive', { isActive: true });
 
@@ -383,8 +383,8 @@ export class ProductsVariantsService {
       where: { id },
       relations: [
         'productBase',
-        'category',
-        'brand',
+        'productBase.category',
+        'productBase.brand',
         'supplierProducts',
         'stockLocations',
         'stockLocations.branch'
@@ -399,8 +399,8 @@ export class ProductsVariantsService {
       where: { id },
       relations: [
         'productBase',
-        'category',
-        'brand',
+        'productBase.category',
+        'productBase.brand',
         'stockLocations',
         'stockLocations.branch'
       ]
@@ -449,7 +449,7 @@ export class ProductsVariantsService {
         id: In(dto.variantIds),
         isActive: true
       },
-      relations: ['productBase', 'category', 'brand']
+      relations: ['productBase', 'productBase.category', 'productBase.brand']
     });
 
     if (variants.length === 0) {
