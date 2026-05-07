@@ -20,7 +20,7 @@ import { StockModule } from 'src/stock/stock.module';
       ProductVariantBranch
     ]),
     forwardRef(() => PriceHistoryModule),
-    StockModule
+    forwardRef(() => StockModule)
   ],
   controllers: [ProductsVariantsController],
   providers: [ProductsVariantsService],

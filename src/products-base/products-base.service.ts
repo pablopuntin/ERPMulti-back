@@ -5,7 +5,9 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
-  Logger
+  Logger,
+  Inject,
+  forwardRef
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
@@ -45,6 +47,7 @@ export class ProductsBaseService {
     @InjectRepository(Branch)
     private readonly branchesRepository: Repository<Branch>,
 
+    @Inject(forwardRef(() => StockService))
     private readonly stockService: StockService
   ) {}
 
