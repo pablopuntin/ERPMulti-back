@@ -573,6 +573,63 @@ export class StockService {
     return movement;
   }
 
+  async createStockLocation(dto: {
+    variantId: string;
+    branchId?: string;
+    quantity: number;
+    minStock: number;
+    locationType: StockLocationType;
+    sku: string;
+    costPrice: number;
+    salePrice: number;
+  }): Promise<StockLocation> {
+    const stockLocation = this.stockLocationRepo.create({
+      quantity: dto.quantity,
+      reservedQuantity: 0,
+      availableQuantity: dto.quantity,
+      minStock: dto.minStock,
+      locationType: dto.locationType,
+      sku: dto.sku,
+      costPrice: dto.costPrice,
+      salePrice: dto.salePrice,
+      branch: dto.branchId ? { id: dto.branchId } : undefined,
+      productVariant: { id: dto.variantId },
+      isActive: true
+    });
+    return this.stockLocationRepo.save(stockLocation);
+  }
+
+  async deleteStockLocation(stockLocationId: string): Promise<void> {
+    const sl = await this.stockLocationRepo.findOne({
+      where: { id: stockLocationId }
+    });
+    if (sl) {
+      await this.stockLocationRepo.remove(sl);
+    }
+  }
+
+  async syncStockSalePrice(variantId: string, newPrice: number): Promise<void> {
+    const stockLocations = await this.stockLocationRepo.find({
+      where: { productVariant: { id: variantId }, isActive: true }
+    });
+    if (stockLocations.length === 0) return;
+    await this.stockLocationRepo.save(
+      stockLocations.map((sl) => ({ ...sl, salePrice: newPrice }))
+    );
+  }
+
+  async calculateStockByBranch(variantId: string, branchId: string): Promise<number> {
+    const stockLocation = await this.stockLocationRepo.findOne({
+      where: {
+        productVariant: { id: variantId },
+        branch: { id: branchId },
+        isActive: true,
+        locationType: StockLocationType.BRANCH
+      }
+    });
+    return stockLocation?.availableQuantity || 0;
+  }
+
   async calculateTotalStock(variantId: string): Promise<number> {
     const stockLocations = await this.stockLocationRepo.find({
       where: {

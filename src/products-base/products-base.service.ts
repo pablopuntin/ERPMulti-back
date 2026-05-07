@@ -20,6 +20,7 @@ import { Branch } from 'src/branches/entities/branch.entity';
 import { Category } from 'src/categories/entities/category.entity';
 import { PreviewProductsImportDto } from './dto/preview-products-import.dto';
 import { resolveBranchScope, type BranchScopedUser } from 'src/common/auth/branch-scope.util';
+import { StockService } from 'src/stock/stock.service';
 
 @Injectable()
 export class ProductsBaseService {
@@ -41,11 +42,10 @@ export class ProductsBaseService {
     @InjectRepository(ProductVariantBranch)
     private readonly variantBranchRepository: Repository<ProductVariantBranch>,
 
-    @InjectRepository(StockLocation)
-    private readonly stockLocationRepository: Repository<StockLocation>,
-
     @InjectRepository(Branch)
-    private readonly branchesRepository: Repository<Branch>
+    private readonly branchesRepository: Repository<Branch>,
+
+    private readonly stockService: StockService
   ) {}
 
   private resolveOperationalBranchId(
@@ -1086,21 +1086,16 @@ export class ProductsBaseService {
     // 4️⃣ Crear StockLocation si se especificó sucursal
     let stockLocation: StockLocation | null = null;
     if (variantData.branchId || variantData.stock > 0) {
-      stockLocation = this.stockLocationRepository.create({
+      stockLocation = await this.stockService.createStockLocation({
+        variantId: savedVariant.id,
+        branchId: operationalBranchId,
         quantity: variantData.stock,
-        reservedQuantity: 0,
-        availableQuantity: variantData.stock,
         minStock: variantData.minStock || 5,
         locationType: StockLocationType.BRANCH,
         sku: generatedSku,
         costPrice: variantData.purchasePrice ?? variantData.price * 0.7,
-        salePrice: variantData.price,
-        branch: { id: operationalBranchId },
-        productVariant: { id: savedVariant.id },
-        isActive: true
+        salePrice: variantData.price
       });
-
-      await this.stockLocationRepository.save(stockLocation);
     }
 
     return {
@@ -1239,21 +1234,7 @@ export class ProductsBaseService {
   // MÉTODO AUXILIAR - Calcular stock total (sucursales + depositos, sin tránsito)
   // ---------------------------------------------------------------------------
   async calculateTotalStock(variantId: string): Promise<number> {
-    const stockLocations = await this.stockLocationRepository.find({
-      where: {
-        productVariant: { id: variantId },
-        isActive: true,
-        locationType: In([
-          StockLocationType.BRANCH,
-          StockLocationType.WAREHOUSE
-        ])
-      }
-    });
-
-    return stockLocations.reduce(
-      (total, stock) => total + stock.availableQuantity,
-      0
-    );
+    return this.stockService.calculateTotalStock(variantId);
   }
 
   // ---------------------------------------------------------------------------
@@ -1263,16 +1244,7 @@ export class ProductsBaseService {
     variantId: string,
     branchId: string
   ): Promise<number> {
-    const stockLocation = await this.stockLocationRepository.findOne({
-      where: {
-        productVariant: { id: variantId },
-        branch: { id: branchId },
-        isActive: true,
-        locationType: StockLocationType.BRANCH
-      }
-    });
-
-    return stockLocation?.availableQuantity || 0;
+    return this.stockService.calculateStockByBranch(variantId, branchId);
   }
 
   // ---------------------------------------------------------------------------
@@ -1547,21 +1519,16 @@ export class ProductsBaseService {
         await this.ensureVariantAssignment(savedVariant, stockData.branchId);
       }
 
-      const stockLocation = this.stockLocationRepository.create({
+      const savedStock = await this.stockService.createStockLocation({
+        variantId: savedVariant.id,
+        branchId: stockData.branchId,
         quantity: stockData.quantity,
-        reservedQuantity: 0,
-        availableQuantity: stockData.quantity,
         minStock: stockData.minStock || 5,
         locationType: stockData.locationType as StockLocationType,
         sku: generatedSku,
         costPrice: dto.purchasePrice ?? dto.price * 0.7,
-        salePrice: dto.price,
-        branch: stockData.branchId ? { id: stockData.branchId } : undefined,
-        productVariant: { id: savedVariant.id },
-        isActive: true
+        salePrice: dto.price
       });
-
-      const savedStock = await this.stockLocationRepository.save(stockLocation);
       stockLocations.push(savedStock);
     }
 
@@ -1586,7 +1553,9 @@ export class ProductsBaseService {
 
     // 2️⃣ Eliminar todos los stocks asociados
     if (variant.stockLocations && variant.stockLocations.length > 0) {
-      await this.stockLocationRepository.remove(variant.stockLocations);
+      for (const sl of variant.stockLocations) {
+        await this.stockService.deleteStockLocation(sl.id);
+      }
     }
 
     // 3️⃣ Eliminar la variante

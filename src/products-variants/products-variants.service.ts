@@ -18,6 +18,7 @@ import { StockLocationType } from 'src/branches/entities/stock-location.entity';
 import { Branch } from 'src/branches/entities/branch.entity';
 import { ProductVariantBranch } from './entities/product-variant-branch.entity';
 import { resolveBranchScope, type BranchScopedUser } from 'src/common/auth/branch-scope.util';
+import { StockService } from 'src/stock/stock.service';
 
 @Injectable()
 export class ProductsVariantsService {
@@ -37,7 +38,8 @@ export class ProductsVariantsService {
     @InjectRepository(Branch)
     private readonly branchRepo: Repository<Branch>,
 
-    private readonly priceHistoryService: PriceHistoryService
+    private readonly priceHistoryService: PriceHistoryService,
+    private readonly stockService: StockService
   ) {}
 
   private resolveOperationalBranchId(
@@ -101,23 +103,7 @@ export class ProductsVariantsService {
   }
 
   private async syncStockSalePrice(variantId: string, newPrice: number) {
-    const stockLocations = await this.stockLocationRepo.find({
-      where: {
-        productVariant: { id: variantId },
-        isActive: true
-      }
-    });
-
-    if (stockLocations.length === 0) {
-      return;
-    }
-
-    await this.stockLocationRepo.save(
-      stockLocations.map((stockLocation) => ({
-        ...stockLocation,
-        salePrice: newPrice
-      }))
-    );
+    await this.stockService.syncStockSalePrice(variantId, newPrice);
   }
 
   private buildStockKey(

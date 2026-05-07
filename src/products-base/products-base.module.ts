@@ -11,6 +11,7 @@ import { StockLocation } from 'src/branches/entities/stock-location.entity';
 import { Branch } from 'src/branches/entities/branch.entity';
 import { BranchesModule } from 'src/branches/branches.module';
 import { CategoriesModule } from 'src/categories/categories.module';
+import { StockModule } from 'src/stock/stock.module';
 
 @Module({
   imports: [
@@ -24,7 +25,8 @@ import { CategoriesModule } from 'src/categories/categories.module';
       Branch
     ]),
     BranchesModule,
-    CategoriesModule
+    CategoriesModule,
+    StockModule
   ],
   controllers: [ProductsBaseController],
   providers: [ProductsBaseService],
