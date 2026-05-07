@@ -1,5 +1,6 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { ProductsBaseService } from './products-base.service';
+import { ProductImportService } from './product-import.service';
 import { ProductsBaseController } from './products-base.controller';
 import { ProductsBase } from './entities/products-base.entity';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -28,7 +29,7 @@ import { StockModule } from 'src/stock/stock.module';
     forwardRef(() => StockModule)
   ],
   controllers: [ProductsBaseController],
-  providers: [ProductsBaseService],
-  exports: [ProductsBaseService] // ✅ Exportar para que otros módulos lo puedan usar
+  providers: [ProductsBaseService, ProductImportService],
+  exports: [ProductsBaseService, ProductImportService] // ✅ Exportar para que otros módulos lo puedan usar
 })
 export class ProductsBaseModule {}
