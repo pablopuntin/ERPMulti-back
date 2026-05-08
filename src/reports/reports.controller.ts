@@ -35,11 +35,13 @@ import { ReportsService } from './reports.service';
 import { ApiTags, ApiOperation, ApiQuery } from '@nestjs/swagger';
 import { CashMovementType } from 'src/cash/entities/cash-movement.entity';
 import { AuthGuard } from '@nestjs/passport';
+import { RolesGuard } from 'src/auth/guards/roles.guard';
+import { Roles } from 'src/auth/decorators/roles.decorator';
 import type { Request } from 'express';
 import { SalesReportFiltersDto } from './dto/sales-reports.dto';
 
 @ApiTags('Reports')
-@UseGuards(AuthGuard('jwt'))
+@UseGuards(AuthGuard('jwt'), RolesGuard)
 @Controller('reports')
 export class ReportsController {
   constructor(private readonly reportsService: ReportsService) {}
@@ -48,6 +50,7 @@ export class ReportsController {
   // 1. FINANCE REPORT (INGRESOS/EGRESOS/BALANCE)
   // ─────────────────────────────────────────────
   @Get('finance')
+  @Roles('root', 'gerente_general', 'gerente_sucursal')
   @ApiOperation({ summary: 'Resumen financiero' })
   @ApiQuery({
     name: 'from',
@@ -83,6 +86,7 @@ export class ReportsController {
   // 2. CASH MOVEMENTS (LISTADO)
   // ─────────────────────────────────────────────
   @Get('cash-movements')
+  @Roles('root', 'gerente_general', 'gerente_sucursal', 'cajero')
   @ApiOperation({
     summary: 'Listado de movimientos de caja',
     description:
@@ -130,6 +134,7 @@ export class ReportsController {
   // 3. PROFIT REPORT (GANANCIA)
   // ─────────────────────────────────────────────
   @Get('profit')
+  @Roles('root', 'gerente_general', 'gerente_sucursal')
   @ApiOperation({ summary: 'Reporte de ganancia' })
   @ApiQuery({
     name: 'from',
@@ -159,6 +164,7 @@ export class ReportsController {
   // 4. DAILY SUMMARY (RESUMEN DE UNA FECHA)
   // ─────────────────────────────────────────────
   @Get('daily')
+  @Roles('root', 'gerente_general', 'gerente_sucursal', 'vendedor', 'cajero')
   @ApiOperation({ summary: 'Resumen financiero diario' })
   @ApiQuery({
     name: 'date',
@@ -183,6 +189,7 @@ export class ReportsController {
   // 5. PRICE CHANGES REPORT
   // ─────────────────────────────────────────────
   @Get('price-changes')
+  @Roles('root', 'gerente_general', 'gerente_sucursal')
   @ApiOperation({
     summary: 'Historial de cambios de precio',
     description: 'Muestra los cambios de precio en un rango opcional de fechas.'
@@ -205,6 +212,7 @@ export class ReportsController {
   // 6. STOCK SUMMARY
   // ─────────────────────────────────────────────
   @Get('stock')
+  @Roles('root', 'gerente_general', 'gerente_sucursal', 'vendedor')
   @ApiOperation({
     summary: 'Resumen consolidado de stock',
     description:
@@ -246,6 +254,7 @@ export class ReportsController {
   // 7. VENTAS POR PRODUCTOS (con márgenes)
   // //////////////////////////////////////////////////////////////////////////////////////
   @Get('sales/products')
+  @Roles('root', 'gerente_general', 'gerente_sucursal')
   @ApiOperation({
     summary: 'Reporte de ventas por productos',
     description:
@@ -297,6 +306,7 @@ export class ReportsController {
   // 8. VENTAS POR CATEGORÍAS
   // //////////////////////////////////////////////////////////////////////////////////////
   @Get('sales/categories')
+  @Roles('root', 'gerente_general', 'gerente_sucursal')
   @ApiOperation({
     summary: 'Reporte de ventas por categorías',
     description:
@@ -333,6 +343,7 @@ export class ReportsController {
   // 9. VENTAS POR MARCAS
   // //////////////////////////////////////////////////////////////////////////////////////
   @Get('sales/brands')
+  @Roles('root', 'gerente_general', 'gerente_sucursal')
   @ApiOperation({
     summary: 'Reporte de ventas por marcas',
     description: 'Ventas agrupadas por marca. Respetando scope multi sucursal.'

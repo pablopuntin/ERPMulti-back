@@ -28,7 +28,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         }
       ]),
       ignoreExpiration: false,
-      secretOrKey: process.env.JWT_SECRET || 'secret123'
+      secretOrKey: (() => {
+        const secret = process.env.JWT_SECRET;
+        if (!secret) throw new Error('JWT_SECRET env variable is not defined');
+        return secret;
+      })()
     });
   }
 

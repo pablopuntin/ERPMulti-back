@@ -8,16 +8,21 @@ async function bootstrap() {
 
   app.setGlobalPrefix('api');
 
-  // app.enableCors({
-  //   origin: ['http://localhost:3000'], // frontend local
-  //   methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
-  //   credentials: true
-  // });
+  const allowedOrigins = process.env.CORS_ORIGINS
+    ? process.env.CORS_ORIGINS.split(',')
+    : ['http://localhost:3000', 'http://localhost:5173'];
 
   app.enableCors({
-  origin: true,
-  credentials: true,
-});
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error(`CORS: origin not allowed — ${origin}`));
+      }
+    },
+    credentials: true,
+    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS'
+  });
 
   app.useGlobalPipes(
     new ValidationPipe({
