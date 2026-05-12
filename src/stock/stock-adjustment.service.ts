@@ -5,6 +5,7 @@ import { StockLocation } from 'src/branches/entities/stock-location.entity';
 import { StockMovement, StockMovementType } from './entities/stock.entity';
 import { ProductVariant } from 'src/products-variants/entities/products-variant.entity';
 import { Branch } from 'src/branches/entities/branch.entity';
+import { User } from 'src/users/entities/user.entity';
 import { StockService } from './stock.service';
 import { CreateAdjustmentDto } from './dto/create-adjustment.dto';
 
@@ -21,6 +22,8 @@ export class StockAdjustmentService {
     private readonly variantRepo: Repository<ProductVariant>,
     @InjectRepository(Branch)
     private readonly branchRepo: Repository<Branch>,
+    @InjectRepository(User)
+    private readonly userRepo: Repository<User>,
     private readonly stockService: StockService
   ) {}
 
@@ -45,7 +48,15 @@ export class StockAdjustmentService {
       throw new NotFoundException(`Branch ${dto.branchId} not found`);
     }
 
-    // 3. Obtener stock actual
+    // 3. Validar usuario
+    const userEntity = await this.userRepo.findOne({
+      where: { id: user.id }
+    });
+    if (!userEntity) {
+      throw new NotFoundException(`User ${user.id} not found`);
+    }
+
+    // 4. Obtener stock actual
     const stockLocation = await this.stockLocationRepo
       .createQueryBuilder('stockLocation')
       .leftJoinAndSelect('stockLocation.productVariant', 'productVariant')
@@ -85,7 +96,7 @@ export class StockAdjustmentService {
       quantity: difference,
       reason: dto.reason,
       variant,
-      user
+      user: userEntity
     });
 
     await this.stockMovementRepo.save(movement);
