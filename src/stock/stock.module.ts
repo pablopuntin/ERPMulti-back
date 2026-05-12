@@ -43,12 +43,12 @@
 //   providers: [StockService],
 //   exports: [StockService],
 // })
-// export class StockModule {}
-
 import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { StockService } from './stock.service';
 import { StockController } from './stock.controller';
+import { StockAdjustmentService } from './stock-adjustment.service';
+import { StockAdjustmentController } from './stock-adjustment.controller';
 import { StockMovement } from './entities/stock.entity';
 import { StockAlert } from './entities/stock-alert.entity'; //
 import { ProductVariant } from 'src/products-variants/entities/products-variant.entity';
@@ -76,8 +76,8 @@ import { SuppliersModule } from 'src/suppliers/suppliers.module';
     forwardRef(() => SuppliersModule)
   ],
 
-  controllers: [StockController],
-  providers: [StockService],
-  exports: [StockService]
+  controllers: [StockController, StockAdjustmentController],
+  providers: [StockService, StockAdjustmentService],
+  exports: [StockService, StockAdjustmentService]
 })
 export class StockModule {}
