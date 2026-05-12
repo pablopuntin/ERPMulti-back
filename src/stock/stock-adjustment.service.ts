@@ -136,7 +136,7 @@ export class StockAdjustmentService {
 
     return {
       message: 'Stock adjusted successfully',
-      currentQuantity,
+      previousQuantity: currentQuantity,
       newQuantity: dto.newQuantity,
       difference,
       percentageChange: percentageChange.toFixed(2),
