@@ -94,6 +94,8 @@ export class StockAdjustmentService {
     const movement = this.stockMovementRepo.create({
       type: StockMovementType.ADJUSTMENT,
       quantity: difference,
+      previousQuantity: currentQuantity,
+      newQuantity: dto.newQuantity,
       reason: dto.reason,
       variant,
       user: userEntity
@@ -163,6 +165,8 @@ export class StockAdjustmentService {
       variantId: m.variant?.id,
       variantName: m.variant?.name,
       quantity: m.quantity,
+      previousQuantity: m.previousQuantity,
+      newQuantity: m.newQuantity,
       reason: m.reason,
       user: m.user ? `${m.user.firstname} ${m.user.lastname}` : 'System',
       createdAt: m.createdAt

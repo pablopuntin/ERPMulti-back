@@ -32,6 +32,12 @@ export class StockMovement {
   @Column({ type: 'int' })
   quantity: number;
 
+  @Column({ type: 'int', nullable: true })
+  previousQuantity?: number;
+
+  @Column({ type: 'int', nullable: true })
+  newQuantity?: number;
+
   @Column({ type: 'text', nullable: true })
   reason?: string;
 
