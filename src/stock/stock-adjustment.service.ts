@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { StockLocation } from 'src/branches/entities/stock-location.entity';
 import { StockMovement, StockMovementType } from './entities/stock.entity';
 import { ProductVariant } from 'src/products-variants/entities/products-variant.entity';
+import { Branch } from 'src/branches/entities/branch.entity';
 import { StockService } from './stock.service';
 import { CreateAdjustmentDto } from './dto/create-adjustment.dto';
 
@@ -18,6 +19,8 @@ export class StockAdjustmentService {
     private readonly stockMovementRepo: Repository<StockMovement>,
     @InjectRepository(ProductVariant)
     private readonly variantRepo: Repository<ProductVariant>,
+    @InjectRepository(Branch)
+    private readonly branchRepo: Repository<Branch>,
     private readonly stockService: StockService
   ) {}
 
@@ -34,10 +37,22 @@ export class StockAdjustmentService {
       throw new NotFoundException(`Variant ${dto.variantId} not found`);
     }
 
-    // 2. Obtener stock actual
-    const stockLocation = await this.stockLocationRepo.findOne({
-      where: { productVariant: { id: dto.variantId }, branch: { id: dto.branchId } }
+    // 2. Validar sucursal
+    const branch = await this.branchRepo.findOne({
+      where: { id: dto.branchId }
     });
+    if (!branch) {
+      throw new NotFoundException(`Branch ${dto.branchId} not found`);
+    }
+
+    // 3. Obtener stock actual
+    const stockLocation = await this.stockLocationRepo
+      .createQueryBuilder('stockLocation')
+      .leftJoinAndSelect('stockLocation.productVariant', 'productVariant')
+      .leftJoinAndSelect('stockLocation.branch', 'branch')
+      .where('productVariant.id = :variantId', { variantId: dto.variantId })
+      .andWhere('branch.id = :branchId', { branchId: dto.branchId })
+      .getOne();
 
     const currentQuantity = stockLocation?.quantity || 0;
     const difference = dto.newQuantity - currentQuantity;
@@ -80,7 +95,7 @@ export class StockAdjustmentService {
       // Crear si no existe
       const newStockLocation = this.stockLocationRepo.create({
         productVariant: variant,
-        branch: { id: dto.branchId } as any,
+        branch: branch,
         quantity: dto.newQuantity,
         availableQuantity: dto.newQuantity
       });
