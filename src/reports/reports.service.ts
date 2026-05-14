@@ -787,13 +787,134 @@ export class ReportsService {
     }));
   }
 
+  async getCashMovements(user: User, from: Date, to: Date, branchId?: string) {
+    const targetBranchId = this.validateScope(user, branchId);
+    
+    return this.cashMovementRepo.find({
+      where: {
+        branch: { id: targetBranchId },
+        createdAt: Between(from, to),
+      },
+      relations: ['branch', 'user'],
+      order: { createdAt: 'DESC' }
+    });
+  }
+
+  async getProfit(user: User, from: Date, to: Date, branchId?: string) {
+    const targetBranchId = this.validateScope(user, branchId);
+    
+    const sales = await this.saleItemRepository.find({
+      where: {
+        sale: {
+          branch: { id: targetBranchId },
+          createdAt: Between(from, to),
+          status: SaleStatus.COMPLETED
+        }
+      }
+    });
+
+    const totals = sales.reduce((acc, item) => {
+      acc.revenue += Number(item.lineTotal || 0);
+      acc.cost += Number(item.costPrice || 0) * Number(item.quantitySold || 0);
+      return acc;
+    }, { revenue: 0, cost: 0 });
+
+    return {
+      ...totals,
+      grossProfit: totals.revenue - totals.cost,
+      margin: totals.revenue > 0 ? ((totals.revenue - totals.cost) / totals.revenue) * 100 : 0
+    };
+  }
+
+  async getDailySummary(user: User, date: Date, branchId?: string) {
+    const startOfDay = new Date(date);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(date);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    const targetBranchId = this.validateScope(user, branchId);
+    const financial = await this.getFinancialTotals(startOfDay, endOfDay, targetBranchId);
+
+    const sales = await this.saleItemRepository.find({
+      where: {
+        sale: {
+          branch: { id: targetBranchId },
+          createdAt: Between(startOfDay, endOfDay),
+          status: SaleStatus.COMPLETED
+        }
+      }
+    });
+
+    const salesTotal = sales.reduce((acc, item) => acc + Number(item.lineTotal || 0), 0);
+
+    return {
+      date,
+      salesTotal,
+      ...financial,
+      netBalance: salesTotal + financial.income - financial.expenses
+    };
+  }
+
+  async getPriceChanges(filters: { from: Date, to: Date }) {
+    return [];
+  }
+
+  async getStockSummary(user: User, branchId?: string) {
+    const targetBranchId = this.validateScope(user, branchId);
+    return { message: "Stock summary available in inventory module", branchId: targetBranchId };
+  }
+
+  async getSalesByCategories(user: User, filters: any) {
+    const targetBranchId = this.validateScope(user, filters.branchId);
+    const sales = await this.saleItemRepository.find({
+      where: {
+        sale: {
+          branch: { id: targetBranchId },
+          createdAt: Between(filters.from, filters.to),
+          status: SaleStatus.COMPLETED
+        }
+      },
+      relations: ['productVariant', 'productVariant.productBase', 'productVariant.productBase.category']
+    });
+
+    const categories = {};
+    sales.forEach(item => {
+      const catName = item.productVariant?.productBase?.category?.name || 'Sin Categoría';
+      categories[catName] = (categories[catName] || 0) + Number(item.lineTotal || 0);
+    });
+
+    return Object.entries(categories).map(([name, total]) => ({ name, total }));
+  }
+
+  async getSalesByBrands(user: User, filters: any) {
+    const targetBranchId = this.validateScope(user, filters.branchId);
+    const sales = await this.saleItemRepository.find({
+      where: {
+        sale: {
+          branch: { id: targetBranchId },
+          createdAt: Between(filters.from, filters.to),
+          status: SaleStatus.COMPLETED
+        }
+      },
+      relations: ['productVariant', 'productVariant.productBase', 'productVariant.productBase.brand']
+    });
+
+    const brands = {};
+    sales.forEach(item => {
+      const brandName = item.productVariant?.productBase?.brand?.name || 'Sin Marca';
+      brands[brandName] = (brands[brandName] || 0) + Number(item.lineTotal || 0);
+    });
+
+    return Object.entries(brands).map(([name, total]) => ({ name, total }));
+  }
+
   // --- HELPERS ---
 
   private async getFinancialTotals(start: Date, end: Date, branchId: string) {
     const moves = await this.cashMovementRepo.find({
       where: {
         createdAt: Between(start, end),
-        branchId: branchId,
+        branch: { id: branchId },
         isReversed: false // FILTRO CRÍTICO FASE 3
       }
     });
