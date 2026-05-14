@@ -820,11 +820,11 @@ export class ReportsService {
 
     // Si es admin global, puede ver cualquier sucursal (usa la solicitada o la primera asignada)
     if (isGlobalAdmin) {
-      return requestedBranchId || user.branchAssignments?.[0]?.branchId || '';
+      return requestedBranchId || user.branchAssignments?.[0]?.branch?.id || '';
     }
 
-    // Si no es admin, buscamos sus sucursales asignadas
-    const assignedBranchIds = user.branchAssignments?.map(ba => ba.branchId) || [];
+    // Si no es admin, buscamos sus sucursales asignadas a través de la relación 'branch'
+    const assignedBranchIds = user.branchAssignments?.map(ba => ba.branch?.id).filter(id => !!id) || [];
 
     if (requestedBranchId) {
       if (!assignedBranchIds.includes(requestedBranchId)) {
