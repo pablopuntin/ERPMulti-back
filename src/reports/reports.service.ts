@@ -760,20 +760,21 @@ export class ReportsService {
 
     sales.forEach(sale => {
       sale.items.forEach(item => {
-        const id = item.product.id;
+        const id = item.productVariant?.id || item.productVariantId || 'unknown';
         const current = productMap.get(id) || {
-          product_name: item.product.name,
-          sku: item.product.sku,
-          category: item.product.productBase?.category?.name || 'Sin Categoría',
-          brand: item.product.productBase?.brand?.name || 'Sin Marca',
+          product_name: item.productNameSnapshot || item.productVariant?.productBase?.name || 'Sin nombre',
+          sku: item.skuSnapshot || item.productVariant?.sku || 'S/N',
+          category: (item.productVariant as any)?.productBase?.category?.name || 'Sin Categoría',
+          brand: (item.productVariant as any)?.productBase?.brand?.name || 'Sin Marca',
           quantity: 0,
           total_amount: 0,
           total_cost: 0
         };
 
-        current.quantity += item.quantity;
-        current.total_amount += item.price * item.quantity;
-        current.total_cost += (item.cost || 0) * item.quantity;
+        current.quantity += Number(item.quantitySold || 0);
+        current.total_amount += Number(item.lineTotal || 0);
+        const cost = (item.productVariant as any)?.costPrice || 0;
+        current.total_cost += cost * Number(item.quantitySold || 0);
         productMap.set(id, current);
       });
     });
