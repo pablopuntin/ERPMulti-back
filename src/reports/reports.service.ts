@@ -682,7 +682,6 @@ import { InjectRepository } from '@nestjs/typeorm';
 import {
   Between,
   FindOptionsWhere,
-  ILike,
   Repository
 } from 'typeorm';
 
@@ -697,16 +696,8 @@ import { ProductVariant } from 'src/products-variants/entities/products-variant.
 
 import { PriceChangeHistory } from 'src/price-history/entities/price-history.entity';
 
-import { Order } from 'src/orders/entities/order.entity';
-import { OrderItem } from 'src/orders/entities/order-item.entity';
-
-import { PurchaseItem } from 'src/purchase/entities/purchase-item.entity';
-
-import { Category } from 'src/categories/entities/category.entity';
-import { Brand } from 'src/brands/entities/brand.entity';
-import { Branch } from 'src/branches/entities/branch.entity';
-
-import { ProductsBaseService } from 'src/products-base/products-base.service';
+import { Sale } from 'src/sales/entities/sale.entity';
+import { SaleItem } from 'src/sales/entities/sale-item.entity';
 
 import {
   BranchScopedUser,
@@ -753,25 +744,11 @@ export class ReportsService {
     @InjectRepository(PriceChangeHistory)
     private readonly priceHistoryRepo: Repository<PriceChangeHistory>,
 
-    @InjectRepository(Order)
-    private readonly orderRepo: Repository<Order>,
+    @InjectRepository(Sale)
+    private readonly saleRepo: Repository<Sale>,
 
-    @InjectRepository(OrderItem)
-    private readonly orderItemRepo: Repository<OrderItem>,
-
-    @InjectRepository(PurchaseItem)
-    private readonly purchaseItemRepo: Repository<PurchaseItem>,
-
-    @InjectRepository(Category)
-    private readonly categoryRepo: Repository<Category>,
-
-    @InjectRepository(Brand)
-    private readonly brandRepo: Repository<Brand>,
-
-    @InjectRepository(Branch)
-    private readonly branchRepo: Repository<Branch>,
-
-    private readonly productsBaseService: ProductsBaseService
+    @InjectRepository(SaleItem)
+    private readonly saleItemRepo: Repository<SaleItem>
   ) {}
 
   // =========================================================
@@ -911,7 +888,6 @@ export class ReportsService {
     const balance =
       totalIncome - totalExpense;
 
-    // período anterior para trends
     const duration =
       toDate.getTime() - fromDate.getTime();
 
@@ -1182,31 +1158,24 @@ export class ReportsService {
         filters.to
       );
 
-    const query = this.orderItemRepo
-      .createQueryBuilder('oi')
-      .leftJoin('oi.order', 'o')
-      .leftJoin('oi.variant', 'pv')
+    const query = this.saleItemRepo
+      .createQueryBuilder('si')
+      .leftJoin('si.sale', 's')
+      .leftJoin('si.productVariant', 'pv')
       .leftJoin('pv.productBase', 'pb')
-      .leftJoin('pv.category', 'c')
-      .leftJoin('pv.brand', 'b')
-      .leftJoin('o.branch', 'branch')
-      .where('o.status IN (:...statuses)', {
-        statuses: ['approved', 'completed']
-      })
-      .andWhere(
-        'o.createdAt BETWEEN :from AND :to',
+      .leftJoin('pb.category', 'c')
+      .leftJoin('pb.brand', 'b')
+      .where(
+        's.confirmedAt BETWEEN :from AND :to',
         {
           from: fromDate,
           to: toDate
         }
-      )
-      .andWhere(
-        'oi.approvedQuantity > 0'
       );
 
     if (resolvedBranchId) {
       query.andWhere(
-        'o.branchId = :branchId',
+        's.branchId = :branchId',
         {
           branchId: resolvedBranchId
         }
@@ -1217,9 +1186,9 @@ export class ReportsService {
       query.andWhere(
         `
         (
-          pv.name ILIKE :search
+          pb.name ILIKE :search
+          OR pv.name ILIKE :search
           OR pv.sku ILIKE :search
-          OR pb.name ILIKE :search
         )
         `,
         {
@@ -1228,7 +1197,7 @@ export class ReportsService {
       );
     }
 
-    const sales = await query
+    return query
       .select('pv.id', 'productId')
       .addSelect(
         'COALESCE(pb.name, pv.name)',
@@ -1238,15 +1207,15 @@ export class ReportsService {
       .addSelect('c.name', 'categoryName')
       .addSelect('b.name', 'brandName')
       .addSelect(
-        'SUM(oi.approvedQuantity)',
+        'SUM(si.quantitySold)',
         'totalUnits'
       )
       .addSelect(
-        'SUM(oi.subtotal)',
+        'SUM(si.lineTotal)',
         'totalRevenue'
       )
       .addSelect(
-        'AVG(oi.price)',
+        'AVG(si.unitPrice)',
         'averagePrice'
       )
       .groupBy('pv.id')
@@ -1256,25 +1225,10 @@ export class ReportsService {
       .addGroupBy('c.name')
       .addGroupBy('b.name')
       .orderBy(
-        'SUM(oi.subtotal)',
+        'SUM(si.lineTotal)',
         'DESC'
       )
       .getRawMany();
-
-    return sales.map((sale) => ({
-      productId: sale.productId,
-      productName: sale.productName,
-      productSku: sale.productSku,
-      categoryName: sale.categoryName,
-      brandName: sale.brandName,
-      totalUnits:
-        Number(sale.totalUnits) || 0,
-      totalRevenue:
-        Number(sale.totalRevenue) || 0,
-      averagePrice:
-        Number(sale.averagePrice) || 0,
-      marginPercentage: undefined
-    }));
   }
 
   // =========================================================
@@ -1297,16 +1251,14 @@ export class ReportsService {
         filters.to
       );
 
-    const query = this.orderItemRepo
-      .createQueryBuilder('oi')
-      .leftJoin('oi.order', 'o')
-      .leftJoin('oi.variant', 'pv')
-      .leftJoin('pv.category', 'c')
-      .where('o.status IN (:...statuses)', {
-        statuses: ['approved', 'completed']
-      })
-      .andWhere(
-        'o.createdAt BETWEEN :from AND :to',
+    const query = this.saleItemRepo
+      .createQueryBuilder('si')
+      .leftJoin('si.sale', 's')
+      .leftJoin('si.productVariant', 'pv')
+      .leftJoin('pv.productBase', 'pb')
+      .leftJoin('pb.category', 'c')
+      .where(
+        's.confirmedAt BETWEEN :from AND :to',
         {
           from: fromDate,
           to: toDate
@@ -1315,7 +1267,7 @@ export class ReportsService {
 
     if (resolvedBranchId) {
       query.andWhere(
-        'o.branchId = :branchId',
+        's.branchId = :branchId',
         {
           branchId: resolvedBranchId
         }
@@ -1324,30 +1276,23 @@ export class ReportsService {
 
     return query
       .select('c.id', 'categoryId')
+      .addSelect('c.name', 'categoryName')
       .addSelect(
-        'c.name',
-        'categoryName'
-      )
-      .addSelect(
-        'SUM(oi.approvedQuantity)',
+        'SUM(si.quantitySold)',
         'totalUnits'
       )
       .addSelect(
-        'SUM(oi.subtotal)',
+        'SUM(si.lineTotal)',
         'totalRevenue'
       )
       .addSelect(
-        'AVG(oi.price)',
-        'averagePrice'
-      )
-      .addSelect(
-        'COUNT(DISTINCT o.id)',
-        'ordersCount'
+        'COUNT(DISTINCT s.id)',
+        'salesCount'
       )
       .groupBy('c.id')
       .addGroupBy('c.name')
       .orderBy(
-        'SUM(oi.subtotal)',
+        'SUM(si.lineTotal)',
         'DESC'
       )
       .getRawMany();
@@ -1373,16 +1318,14 @@ export class ReportsService {
         filters.to
       );
 
-    const query = this.orderItemRepo
-      .createQueryBuilder('oi')
-      .leftJoin('oi.order', 'o')
-      .leftJoin('oi.variant', 'pv')
-      .leftJoin('pv.brand', 'b')
-      .where('o.status IN (:...statuses)', {
-        statuses: ['approved', 'completed']
-      })
-      .andWhere(
-        'o.createdAt BETWEEN :from AND :to',
+    const query = this.saleItemRepo
+      .createQueryBuilder('si')
+      .leftJoin('si.sale', 's')
+      .leftJoin('si.productVariant', 'pv')
+      .leftJoin('pv.productBase', 'pb')
+      .leftJoin('pb.brand', 'b')
+      .where(
+        's.confirmedAt BETWEEN :from AND :to',
         {
           from: fromDate,
           to: toDate
@@ -1391,7 +1334,7 @@ export class ReportsService {
 
     if (resolvedBranchId) {
       query.andWhere(
-        'o.branchId = :branchId',
+        's.branchId = :branchId',
         {
           branchId: resolvedBranchId
         }
@@ -1402,25 +1345,21 @@ export class ReportsService {
       .select('b.id', 'brandId')
       .addSelect('b.name', 'brandName')
       .addSelect(
-        'SUM(oi.approvedQuantity)',
+        'SUM(si.quantitySold)',
         'totalUnits'
       )
       .addSelect(
-        'SUM(oi.subtotal)',
+        'SUM(si.lineTotal)',
         'totalRevenue'
       )
       .addSelect(
-        'AVG(oi.price)',
-        'averagePrice'
-      )
-      .addSelect(
-        'COUNT(DISTINCT o.id)',
-        'ordersCount'
+        'COUNT(DISTINCT s.id)',
+        'salesCount'
       )
       .groupBy('b.id')
       .addGroupBy('b.name')
       .orderBy(
-        'SUM(oi.subtotal)',
+        'SUM(si.lineTotal)',
         'DESC'
       )
       .getRawMany();
@@ -1442,73 +1381,94 @@ export class ReportsService {
         branchId
       );
 
-    if (!resolvedBranchId) {
-      return [];
+    const query = this.variantRepo
+      .createQueryBuilder('pv')
+      .leftJoinAndSelect('pv.productBase', 'pb')
+      .leftJoinAndSelect('pv.stockLocations', 'sl');
+
+    if (search) {
+      query.andWhere(
+        `
+        (
+          pb.name ILIKE :search
+          OR pv.name ILIKE :search
+          OR pv.sku ILIKE :search
+        )
+        `,
+        {
+          search: `%${search}%`
+        }
+      );
     }
 
-    const whereClause = search
-      ? {
-          productBase: {
-            name: ILike(
-              `%${search}%`
-            )
-          }
+    if (resolvedBranchId) {
+      query.andWhere(
+        'sl.branchId = :branchId',
+        {
+          branchId: resolvedBranchId
         }
-      : {};
+      );
+    }
 
-    const variants =
-      await this.variantRepo.find({
-        relations: ['productBase'],
-        where: whereClause as any
-      });
+    const variants = await query.getMany();
 
-    const variantsWithStock =
-      await Promise.all(
-        variants.map(async (variant) => ({
-          ...variant,
-          stock:
-            await this.productsBaseService.calculateStockByBranch(
-              variant.id,
+    const grouped = new Map();
+
+    for (const variant of variants) {
+      if (!variant.productBase) {
+        continue;
+      }
+
+      const productBase =
+        variant.productBase;
+
+      if (!grouped.has(productBase.id)) {
+        grouped.set(productBase.id, {
+          productId: productBase.id,
+          productName: productBase.name,
+          totalStock: 0,
+          variants: []
+        });
+      }
+
+      const stock = (
+        variant.stockLocations || []
+      )
+        .filter((sl: any) =>
+          resolvedBranchId
+            ? sl.branchId ===
               resolvedBranchId
-            )
-        }))
+            : true
+        )
+        .reduce(
+          (sum: number, sl: any) =>
+            sum +
+            Number(sl.quantity || 0),
+          0
+        );
+
+      const entry = grouped.get(
+        productBase.id
       );
 
-    const summary =
-      variantsWithStock.reduce(
-        (acc, variant) => {
-          const productId =
-            variant.productBase.id;
+      entry.totalStock += stock;
 
-          if (!acc[productId]) {
-            acc[productId] = {
-              productId,
-              productName:
-                variant.productBase.name,
-              totalStock: 0,
-              variants: []
-            };
-          }
+      entry.variants.push({
+        variantId: variant.id,
+        name: variant.name,
+        sku: variant.sku,
+        stock
+      });
+    }
 
-          acc[productId].variants.push({
-            variantId: variant.id,
-            name: variant.name,
-            stock: variant.stock
-          });
-
-          acc[productId].totalStock +=
-            variant.stock;
-
-          return acc;
-        },
-        {} as Record<string, any>
-      );
-
-    return Object.values(summary).sort(
-      (a: any, b: any) =>
-        order === 'asc'
-          ? a.totalStock - b.totalStock
-          : b.totalStock - a.totalStock
+    return Array.from(
+      grouped.values()
+    ).sort((a: any, b: any) =>
+      order === 'asc'
+        ? a.totalStock -
+          b.totalStock
+        : b.totalStock -
+          a.totalStock
     );
   }
 }
