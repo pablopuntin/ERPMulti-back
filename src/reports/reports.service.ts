@@ -742,52 +742,63 @@ export class ReportsService {
    */
   async getSalesByProducts(user: User, filters: SalesReportFiltersDto) {
     const branchId = this.validateScope(user, filters.branchId);
+    
     const query = this.saleRepo.createQueryBuilder('sale')
       .leftJoinAndSelect('sale.items', 'item')
+      // Cargamos el producto vinculado al item de venta
       .leftJoinAndSelect('item.product', 'product')
-      .leftJoinAndSelect('product.category', 'category')
-      .leftJoinAndSelect('product.brand', 'brand')
+      // IMPORTANTE: Revisamos si la relación es con productBase
+      // En muchos ERPs, category y brand cuelgan del producto base.
+      // Ajustamos a la ruta común en este sistema:
+      .leftJoinAndSelect('product.productBase', 'productBase')
+      .leftJoinAndSelect('productBase.category', 'category')
+      .leftJoinAndSelect('productBase.brand', 'brand')
       .where('sale.branchId = :branchId', { branchId })
       .andWhere('sale.status = :status', { status: 'COMPLETED' });
-
     if (filters.from && filters.to) {
       query.andWhere('sale.createdAt BETWEEN :from AND :to', { from: filters.from, to: filters.to });
     }
-
     const sales = await query.getMany();
-
-    // Agrupación y cálculo de márgenes
     const productMap = new Map();
-
     sales.forEach(sale => {
       sale.items.forEach(item => {
         const id = item.product.id;
         const current = productMap.get(id) || {
           product_name: item.product.name,
           sku: item.product.sku,
-          category: item.product.category?.name,
-          brand: item.product.brand?.name,
+          // Accedemos a través de productBase
+          category: item.product.productBase?.category?.name || 'Sin Categoría',
+          brand: item.product.productBase?.brand?.name || 'Sin Marca',
           quantity: 0,
           total_amount: 0,
           total_cost: 0
         };
-
         current.quantity += item.quantity;
         current.total_amount += item.price * item.quantity;
-        // Se asume que item.cost se guardó al momento de la venta para integridad
         current.total_cost += (item.cost || 0) * item.quantity;
         
         productMap.set(id, current);
       });
     });
-
     return Array.from(productMap.values()).map(p => ({
       ...p,
       margin: p.total_amount > 0 
-        ? ((p.total_amount - p.total_cost) / p.total_amount) * 100 
+        ? parseFloat((((p.total_amount - p.total_cost) / p.total_amount) * 100).toFixed(2))
         : 0
     }));
   }
+  // ... (mantener validaciones y helpers anteriores)
+  
+  private validateScope(user: User, requestedBranchId?: string): string {
+    if (['root', 'gerente_general'].includes(user.role)) {
+      return requestedBranchId || user.branchId;
+    }
+    if (requestedBranchId && requestedBranchId !== user.branchId) {
+      throw new ForbiddenException('No tiene permisos para ver otra sucursal');
+    }
+    return user.branchId;
+  }
+}
 
   // --- HELPERS ---
 
