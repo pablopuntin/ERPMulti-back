@@ -810,14 +810,35 @@ export class ReportsService {
     return parseFloat((((current - previous) / previous) * 100).toFixed(2));
   }
 
+  /**
+   * Valida el acceso a una sucursal basándose en los roles del usuario.
+   * Un usuario puede tener múltiples asignaciones de sucursal a través de branchAssignments.
+   */
   private validateScope(user: User, requestedBranchId?: string): string {
-    if (['root', 'gerente_general'].includes(user.role)) {
-      return requestedBranchId || user.branchId;
+    const roles = user.roles.map(r => r.name);
+    const isGlobalAdmin = roles.some(role => ['root', 'gerente_general'].includes(role));
+
+    // Si es admin global, puede ver cualquier sucursal (usa la solicitada o la primera asignada)
+    if (isGlobalAdmin) {
+      return requestedBranchId || user.branchAssignments?.[0]?.branchId || '';
     }
-    if (requestedBranchId && requestedBranchId !== user.branchId) {
-      throw new ForbiddenException('No tiene permisos para ver otra sucursal');
+
+    // Si no es admin, buscamos sus sucursales asignadas
+    const assignedBranchIds = user.branchAssignments?.map(ba => ba.branchId) || [];
+
+    if (requestedBranchId) {
+      if (!assignedBranchIds.includes(requestedBranchId)) {
+        throw new ForbiddenException('No tiene permisos para acceder a esta sucursal');
+      }
+      return requestedBranchId;
     }
-    return user.branchId;
+
+    // Si no solicita una específica, devolvemos su sucursal principal
+    if (assignedBranchIds.length === 0) {
+      throw new ForbiddenException('El usuario no tiene sucursales asignadas');
+    }
+
+    return assignedBranchIds[0];
   }
 
   private startOfYear(): Date {
