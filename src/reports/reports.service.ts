@@ -677,296 +677,838 @@
 
 
 //refactor
-import { Injectable, ForbiddenException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Between, Repository, DataSource } from 'typeorm';
-import { CashMovement, CashMovementType } from 'src/cash/entities/cash-movement.entity';
-import { Sale } from 'src/sales/entities/sale.entity';
-import { SalesReportFiltersDto } from './dto/sales-reports.dto';
-import { User } from 'src/users/entities/user.entity';
+import {
+  Between,
+  FindOptionsWhere,
+  ILike,
+  Repository
+} from 'typeorm';
+
+import {
+  CashMovement,
+  CashMovementType
+} from 'src/cash/entities/cash-movement.entity';
+
+import { CashRegister } from 'src/cash/entities/cash-register.entity';
+
+import { ProductVariant } from 'src/products-variants/entities/products-variant.entity';
+
+import { PriceChangeHistory } from 'src/price-history/entities/price-history.entity';
+
+import { Order } from 'src/orders/entities/order.entity';
+import { OrderItem } from 'src/orders/entities/order-item.entity';
+
+import { PurchaseItem } from 'src/purchase/entities/purchase-item.entity';
+
+import { Category } from 'src/categories/entities/category.entity';
+import { Brand } from 'src/brands/entities/brand.entity';
+import { Branch } from 'src/branches/entities/branch.entity';
+
+import { ProductsBaseService } from 'src/products-base/products-base.service';
+
+import {
+  BranchScopedUser,
+  resolveBranchScope
+} from 'src/common/auth/branch-scope.util';
+
+type ReportAccessUser = BranchScopedUser;
+
+const parseReportDate = (
+  value?: string,
+  fallback?: Date
+): Date => {
+  if (!value) {
+    return fallback ? new Date(fallback) : new Date();
+  }
+
+  const isoDateMatch = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+
+  if (isoDateMatch) {
+    const [, year, month, day] = isoDateMatch;
+
+    return new Date(
+      Number(year),
+      Number(month) - 1,
+      Number(day)
+    );
+  }
+
+  return new Date(value);
+};
 
 @Injectable()
 export class ReportsService {
   constructor(
-    private dataSource: DataSource,
     @InjectRepository(CashMovement)
-    private readonly cashMovementRepo: Repository<CashMovement>,
-    @InjectRepository(Sale)
-    private readonly saleRepo: Repository<Sale>,
+    private readonly movementRepo: Repository<CashMovement>,
+
+    @InjectRepository(CashRegister)
+    private readonly registerRepo: Repository<CashRegister>,
+
+    @InjectRepository(ProductVariant)
+    private readonly variantRepo: Repository<ProductVariant>,
+
+    @InjectRepository(PriceChangeHistory)
+    private readonly priceHistoryRepo: Repository<PriceChangeHistory>,
+
+    @InjectRepository(Order)
+    private readonly orderRepo: Repository<Order>,
+
+    @InjectRepository(OrderItem)
+    private readonly orderItemRepo: Repository<OrderItem>,
+
+    @InjectRepository(PurchaseItem)
+    private readonly purchaseItemRepo: Repository<PurchaseItem>,
+
+    @InjectRepository(Category)
+    private readonly categoryRepo: Repository<Category>,
+
+    @InjectRepository(Brand)
+    private readonly brandRepo: Repository<Brand>,
+
+    @InjectRepository(Branch)
+    private readonly branchRepo: Repository<Branch>,
+
+    private readonly productsBaseService: ProductsBaseService
   ) {}
 
-  /**
-   * 1. REFACTOR FINANCE REPORT
-   * Ahora incluye:
-   * - Exclusión de movimientos revertidos (Fase 3).
-   * - Cálculo de tendencias comparando con el período anterior.
-   */
-  async getFinanceReport(user: User, from?: string, to?: string, branchId?: string) {
-    const scopeBranchId = this.validateScope(user, branchId);
-    const startDate = from ? new Date(from) : this.startOfYear();
-    const endDate = to ? new Date(to) : new Date();
+  // =========================================================
+  // HELPERS
+  // =========================================================
 
-    // Cálculo período actual
-    const currentPeriod = await this.getFinancialTotals(startDate, endDate, scopeBranchId);
+  private resolveReportBranch(
+    user: ReportAccessUser,
+    branchId?: string
+  ) {
+    return resolveBranchScope(user, {
+      requestedBranchId: branchId,
+      allowGlobal: true,
+      globalPermissions: ['view_reports'],
+      requireActiveBranch: false,
+      forbiddenMessage:
+        'No tienes acceso a la sucursal solicitada para reportes'
+    });
+  }
 
-    // Cálculo período anterior (para tendencias)
-    const duration = endDate.getTime() - startDate.getTime();
-    const prevStartDate = new Date(startDate.getTime() - duration);
-    const prevEndDate = new Date(startDate.getTime() - 1);
-    const prevPeriod = await this.getFinancialTotals(prevStartDate, prevEndDate, scopeBranchId);
+  private normalizeDateRange(
+    from?: string,
+    to?: string
+  ) {
+    const currentYear = new Date().getFullYear();
+
+    const fromDate = parseReportDate(
+      from,
+      new Date(currentYear, 0, 1)
+    );
+
+    const toDate = parseReportDate(
+      to,
+      new Date(currentYear, 11, 31)
+    );
+
+    fromDate.setHours(0, 0, 0, 0);
+    toDate.setHours(23, 59, 59, 999);
 
     return {
-      summary: {
-        total_income: currentPeriod.income,
-        total_expenses: currentPeriod.expenses,
-        balance: currentPeriod.income - currentPeriod.expenses,
-        movements_count: currentPeriod.count,
-        trends: {
-          income_change: this.calculateTrend(currentPeriod.income, prevPeriod.income),
-          expenses_change: this.calculateTrend(currentPeriod.expenses, prevPeriod.expenses),
-          balance_change: this.calculateTrend(
-            currentPeriod.income - currentPeriod.expenses,
-            prevPeriod.income - prevPeriod.expenses
-          ),
-        }
-      },
-      period: { from: startDate, to: endDate },
-      prevPeriod: { from: prevStartDate, to: prevEndDate }
+      fromDate,
+      toDate
     };
   }
 
-  /**
-   * 2. REFACTOR SALES BY PRODUCTS
-   * Asegura que el margen se calcule basado en el costo real y respete la sucursal.
-   */
-  async getSalesByProducts(user: User, filters: SalesReportFiltersDto) {
-    const branchId = this.validateScope(user, filters.branchId);
-    
-    const query = this.saleRepo.createQueryBuilder('sale')
-      .leftJoinAndSelect('sale.items', 'item')
-      .leftJoinAndSelect('item.product', 'product')
-      .leftJoinAndSelect('product.productBase', 'productBase')
-      .leftJoinAndSelect('productBase.category', 'category')
-      .leftJoinAndSelect('productBase.brand', 'brand')
-      .where('sale.branchId = :branchId', { branchId })
-      .andWhere('sale.status = :status', { status: 'COMPLETED' });
-
-    if (filters.from && filters.to) {
-      query.andWhere('sale.createdAt BETWEEN :from AND :to', { from: filters.from, to: filters.to });
+  private calculateTrend(
+    current: number,
+    previous: number
+  ): number {
+    if (previous === 0) {
+      return current > 0 ? 100 : 0;
     }
 
-    const sales = await query.getMany();
-    const productMap = new Map();
+    return Number(
+      (
+        ((current - previous) / previous) *
+        100
+      ).toFixed(2)
+    );
+  }
 
-    sales.forEach(sale => {
-      sale.items.forEach(item => {
-        const id = item.productVariant?.id || item.productVariantId || 'unknown';
-        const current = productMap.get(id) || {
-          product_name: item.productNameSnapshot || item.productVariant?.productBase?.name || 'Sin nombre',
-          sku: item.skuSnapshot || item.productVariant?.sku || 'S/N',
-          category: (item.productVariant as any)?.productBase?.category?.name || 'Sin Categoría',
-          brand: (item.productVariant as any)?.productBase?.brand?.name || 'Sin Marca',
-          quantity: 0,
-          total_amount: 0,
-          total_cost: 0
-        };
+  // =========================================================
+  // 1. FINANCE REPORT
+  // =========================================================
 
-        current.quantity += Number(item.quantitySold || 0);
-        current.total_amount += Number(item.lineTotal || 0);
-        const cost = (item.productVariant as any)?.costPrice || 0;
-        current.total_cost += cost * Number(item.quantitySold || 0);
-        productMap.set(id, current);
+  async getFinanceReport(
+    user: ReportAccessUser,
+    from?: string,
+    to?: string,
+    branchId?: string
+  ) {
+    const { fromDate, toDate } =
+      this.normalizeDateRange(from, to);
+
+    const resolvedBranchId =
+      this.resolveReportBranch(user, branchId);
+
+    const totals = await this.movementRepo
+      .createQueryBuilder('m')
+      .innerJoin('m.register', 'register')
+      .where('m.createdAt BETWEEN :from AND :to', {
+        from: fromDate,
+        to: toDate
+      })
+      .andWhere(
+        resolvedBranchId
+          ? 'register.branchId = :branchId'
+          : '1=1',
+        resolvedBranchId
+          ? { branchId: resolvedBranchId }
+          : {}
+      )
+      .select(
+        `
+        COALESCE(
+          SUM(
+            CASE
+              WHEN m.type = :incomeType
+              THEN m.amount
+              ELSE 0
+            END
+          ),
+          0
+        )
+        `,
+        'totalIncome'
+      )
+      .addSelect(
+        `
+        COALESCE(
+          SUM(
+            CASE
+              WHEN m.type = :expenseType
+              THEN m.amount
+              ELSE 0
+            END
+          ),
+          0
+        )
+        `,
+        'totalExpense'
+      )
+      .setParameters({
+        incomeType: CashMovementType.INCOME,
+        expenseType: CashMovementType.EXPENSE
+      })
+      .getRawOne();
+
+    const totalIncome = Number(
+      totals?.totalIncome || 0
+    );
+
+    const totalExpense = Number(
+      totals?.totalExpense || 0
+    );
+
+    const balance =
+      totalIncome - totalExpense;
+
+    // período anterior para trends
+    const duration =
+      toDate.getTime() - fromDate.getTime();
+
+    const prevFrom = new Date(
+      fromDate.getTime() - duration
+    );
+
+    const prevTo = new Date(
+      fromDate.getTime() - 1
+    );
+
+    const prevTotals = await this.movementRepo
+      .createQueryBuilder('m')
+      .innerJoin('m.register', 'register')
+      .where('m.createdAt BETWEEN :from AND :to', {
+        from: prevFrom,
+        to: prevTo
+      })
+      .andWhere(
+        resolvedBranchId
+          ? 'register.branchId = :branchId'
+          : '1=1',
+        resolvedBranchId
+          ? { branchId: resolvedBranchId }
+          : {}
+      )
+      .select(
+        `
+        COALESCE(
+          SUM(
+            CASE
+              WHEN m.type = :incomeType
+              THEN m.amount
+              ELSE 0
+            END
+          ),
+          0
+        )
+        `,
+        'totalIncome'
+      )
+      .addSelect(
+        `
+        COALESCE(
+          SUM(
+            CASE
+              WHEN m.type = :expenseType
+              THEN m.amount
+              ELSE 0
+            END
+          ),
+          0
+        )
+        `,
+        'totalExpense'
+      )
+      .setParameters({
+        incomeType: CashMovementType.INCOME,
+        expenseType: CashMovementType.EXPENSE
+      })
+      .getRawOne();
+
+    const prevIncome = Number(
+      prevTotals?.totalIncome || 0
+    );
+
+    const prevExpense = Number(
+      prevTotals?.totalExpense || 0
+    );
+
+    const prevBalance =
+      prevIncome - prevExpense;
+
+    return {
+      totalIncome,
+      totalExpense,
+      balance,
+
+      trends: {
+        income: this.calculateTrend(
+          totalIncome,
+          prevIncome
+        ),
+
+        expense: this.calculateTrend(
+          totalExpense,
+          prevExpense
+        ),
+
+        balance: this.calculateTrend(
+          balance,
+          prevBalance
+        )
+      },
+
+      from: fromDate,
+      to: toDate,
+      branchId: resolvedBranchId
+    };
+  }
+
+  // =========================================================
+  // 2. CASH MOVEMENTS
+  // =========================================================
+
+  async getCashMovements(
+    user: ReportAccessUser,
+    type?: CashMovementType,
+    from?: string,
+    to?: string,
+    branchId?: string
+  ) {
+    const resolvedBranchId =
+      this.resolveReportBranch(user, branchId);
+
+    const query = this.movementRepo
+      .createQueryBuilder('m')
+      .leftJoinAndSelect(
+        'm.register',
+        'register'
+      )
+      .orderBy('m.createdAt', 'DESC');
+
+    if (type) {
+      query.andWhere('m.type = :type', {
+        type
       });
-    });
+    }
 
-    return Array.from(productMap.values()).map(p => ({
-      ...p,
-      margin: p.total_amount > 0 
-        ? parseFloat((((p.total_amount - p.total_cost) / p.total_amount) * 100).toFixed(2))
-        : 0
+    if (from) {
+      const fromDate = parseReportDate(from);
+
+      fromDate.setHours(0, 0, 0, 0);
+
+      query.andWhere(
+        'm.createdAt >= :from',
+        {
+          from: fromDate
+        }
+      );
+    }
+
+    if (to) {
+      const toDate = parseReportDate(to);
+
+      toDate.setHours(
+        23,
+        59,
+        59,
+        999
+      );
+
+      query.andWhere('m.createdAt <= :to', {
+        to: toDate
+      });
+    }
+
+    if (resolvedBranchId) {
+      query.andWhere(
+        'register.branchId = :branchId',
+        {
+          branchId: resolvedBranchId
+        }
+      );
+    }
+
+    const movements = await query.getMany();
+
+    return movements.map((movement) => ({
+      ...movement,
+      description:
+        movement.reason ||
+        'Movimiento de caja'
     }));
   }
 
-  async getCashMovements(user: User, from: Date, to: Date, branchId?: string) {
-    const targetBranchId = this.validateScope(user, branchId);
-    
-    return this.cashMovementRepo.find({
-      where: {
-        branch: { id: targetBranchId },
-        createdAt: Between(from, to),
-      },
-      relations: ['branch', 'user'],
-      order: { createdAt: 'DESC' }
-    });
+  // =========================================================
+  // 3. PROFIT
+  // =========================================================
+
+  async getProfit(
+    user: ReportAccessUser,
+    from?: string,
+    to?: string,
+    branchId?: string
+  ) {
+    return this.getFinanceReport(
+      user,
+      from,
+      to,
+      branchId
+    );
   }
 
-  async getProfit(user: User, from: Date, to: Date, branchId?: string) {
-    const targetBranchId = this.validateScope(user, branchId);
-    
-    const sales = await this.saleItemRepository.find({
-      where: {
-        sale: {
-          branch: { id: targetBranchId },
-          createdAt: Between(from, to),
-          status: SaleStatus.COMPLETED
-        }
-      }
-    });
+  // =========================================================
+  // 4. DAILY SUMMARY
+  // =========================================================
 
-    const totals = sales.reduce((acc, item) => {
-      acc.revenue += Number(item.lineTotal || 0);
-      acc.cost += Number(item.costPrice || 0) * Number(item.quantitySold || 0);
-      return acc;
-    }, { revenue: 0, cost: 0 });
+  async getDailySummary(
+    user: ReportAccessUser,
+    date?: string,
+    branchId?: string
+  ) {
+    const target = parseReportDate(date);
 
-    return {
-      ...totals,
-      grossProfit: totals.revenue - totals.cost,
-      margin: totals.revenue > 0 ? ((totals.revenue - totals.cost) / totals.revenue) * 100 : 0
-    };
+    const start = new Date(target);
+
+    start.setHours(0, 0, 0, 0);
+
+    const end = new Date(target);
+
+    end.setHours(23, 59, 59, 999);
+
+    return this.getFinanceReport(
+      user,
+      start.toISOString(),
+      end.toISOString(),
+      branchId
+    );
   }
 
-  async getDailySummary(user: User, date: Date, branchId?: string) {
-    const startOfDay = new Date(date);
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(date);
-    endOfDay.setHours(23, 59, 59, 999);
+  // =========================================================
+  // 5. PRICE CHANGES
+  // =========================================================
 
-    const targetBranchId = this.validateScope(user, branchId);
-    const financial = await this.getFinancialTotals(startOfDay, endOfDay, targetBranchId);
+  async getPriceChanges(filters: {
+    from?: string;
+    to?: string;
+  }) {
+    let where:
+      | FindOptionsWhere<PriceChangeHistory>
+      | undefined;
 
-    const sales = await this.saleItemRepository.find({
-      where: {
-        sale: {
-          branch: { id: targetBranchId },
-          createdAt: Between(startOfDay, endOfDay),
-          status: SaleStatus.COMPLETED
-        }
-      }
-    });
-
-    const salesTotal = sales.reduce((acc, item) => acc + Number(item.lineTotal || 0), 0);
-
-    return {
-      date,
-      salesTotal,
-      ...financial,
-      netBalance: salesTotal + financial.income - financial.expenses
-    };
-  }
-
-  async getPriceChanges(filters: { from: Date, to: Date }) {
-    return [];
-  }
-
-  async getStockSummary(user: User, branchId?: string) {
-    const targetBranchId = this.validateScope(user, branchId);
-    return { message: "Stock summary available in inventory module", branchId: targetBranchId };
-  }
-
-  async getSalesByCategories(user: User, filters: any) {
-    const targetBranchId = this.validateScope(user, filters.branchId);
-    const sales = await this.saleItemRepository.find({
-      where: {
-        sale: {
-          branch: { id: targetBranchId },
-          createdAt: Between(filters.from, filters.to),
-          status: SaleStatus.COMPLETED
-        }
-      },
-      relations: ['productVariant', 'productVariant.productBase', 'productVariant.productBase.category']
-    });
-
-    const categories = {};
-    sales.forEach(item => {
-      const catName = item.productVariant?.productBase?.category?.name || 'Sin Categoría';
-      categories[catName] = (categories[catName] || 0) + Number(item.lineTotal || 0);
-    });
-
-    return Object.entries(categories).map(([name, total]) => ({ name, total }));
-  }
-
-  async getSalesByBrands(user: User, filters: any) {
-    const targetBranchId = this.validateScope(user, filters.branchId);
-    const sales = await this.saleItemRepository.find({
-      where: {
-        sale: {
-          branch: { id: targetBranchId },
-          createdAt: Between(filters.from, filters.to),
-          status: SaleStatus.COMPLETED
-        }
-      },
-      relations: ['productVariant', 'productVariant.productBase', 'productVariant.productBase.brand']
-    });
-
-    const brands = {};
-    sales.forEach(item => {
-      const brandName = item.productVariant?.productBase?.brand?.name || 'Sin Marca';
-      brands[brandName] = (brands[brandName] || 0) + Number(item.lineTotal || 0);
-    });
-
-    return Object.entries(brands).map(([name, total]) => ({ name, total }));
-  }
-
-  // --- HELPERS ---
-
-  private async getFinancialTotals(start: Date, end: Date, branchId: string) {
-    const moves = await this.cashMovementRepo.find({
-      where: {
-        createdAt: Between(start, end),
-        branch: { id: branchId },
-        isReversed: false // FILTRO CRÍTICO FASE 3
-      }
-    });
-
-    return moves.reduce((acc, curr) => {
-      if (curr.type === CashMovementType.INCOME) acc.income += curr.amount;
-      else acc.expenses += curr.amount;
-      acc.count++;
-      return acc;
-    }, { income: 0, expenses: 0, count: 0 });
-  }
-
-  private calculateTrend(current: number, previous: number): number {
-    if (previous === 0) return current > 0 ? 100 : 0;
-    return parseFloat((((current - previous) / previous) * 100).toFixed(2));
-  }
-
-  /**
-   * Valida el acceso a una sucursal basándose en los roles del usuario.
-   * Un usuario puede tener múltiples asignaciones de sucursal a través de branchAssignments.
-   */
-  private validateScope(user: User, requestedBranchId?: string): string {
-    const roles = user.roles.map(r => r.name);
-    const isGlobalAdmin = roles.some(role => ['root', 'gerente_general'].includes(role));
-
-    // Si es admin global, puede ver cualquier sucursal (usa la solicitada o la primera asignada)
-    if (isGlobalAdmin) {
-      return requestedBranchId || user.branchAssignments?.[0]?.branch?.id || '';
+    if (filters.from && filters.to) {
+      where = {
+        changedAt: Between(
+          new Date(filters.from),
+          new Date(filters.to)
+        )
+      };
     }
 
-    // Si no es admin, buscamos sus sucursales asignadas a través de la relación 'branch'
-    const assignedBranchIds = user.branchAssignments?.map(ba => ba.branch?.id).filter(id => !!id) || [];
-
-    if (requestedBranchId) {
-      if (!assignedBranchIds.includes(requestedBranchId)) {
-        throw new ForbiddenException('No tiene permisos para acceder a esta sucursal');
+    return this.priceHistoryRepo.find({
+      where,
+      order: {
+        changedAt: 'DESC'
       }
-      return requestedBranchId;
-    }
-
-    // Si no solicita una específica, devolvemos su sucursal principal
-    if (assignedBranchIds.length === 0) {
-      throw new ForbiddenException('El usuario no tiene sucursales asignadas');
-    }
-
-    return assignedBranchIds[0];
+    });
   }
 
-  private startOfYear(): Date {
-    const d = new Date();
-    d.setMonth(0, 1);
-    d.setHours(0, 0, 0, 0);
-    return d;
+  // =========================================================
+  // 6. SALES BY PRODUCTS
+  // =========================================================
+
+  async getSalesByProducts(
+    user: ReportAccessUser,
+    filters: any = {}
+  ) {
+    const resolvedBranchId =
+      this.resolveReportBranch(
+        user,
+        filters.branchId
+      );
+
+    const { fromDate, toDate } =
+      this.normalizeDateRange(
+        filters.from,
+        filters.to
+      );
+
+    const query = this.orderItemRepo
+      .createQueryBuilder('oi')
+      .leftJoin('oi.order', 'o')
+      .leftJoin('oi.variant', 'pv')
+      .leftJoin('pv.productBase', 'pb')
+      .leftJoin('pv.category', 'c')
+      .leftJoin('pv.brand', 'b')
+      .leftJoin('o.branch', 'branch')
+      .where('o.status IN (:...statuses)', {
+        statuses: ['approved', 'completed']
+      })
+      .andWhere(
+        'o.createdAt BETWEEN :from AND :to',
+        {
+          from: fromDate,
+          to: toDate
+        }
+      )
+      .andWhere(
+        'oi.approvedQuantity > 0'
+      );
+
+    if (resolvedBranchId) {
+      query.andWhere(
+        'o.branchId = :branchId',
+        {
+          branchId: resolvedBranchId
+        }
+      );
+    }
+
+    if (filters.search) {
+      query.andWhere(
+        `
+        (
+          pv.name ILIKE :search
+          OR pv.sku ILIKE :search
+          OR pb.name ILIKE :search
+        )
+        `,
+        {
+          search: `%${filters.search}%`
+        }
+      );
+    }
+
+    const sales = await query
+      .select('pv.id', 'productId')
+      .addSelect(
+        'COALESCE(pb.name, pv.name)',
+        'productName'
+      )
+      .addSelect('pv.sku', 'productSku')
+      .addSelect('c.name', 'categoryName')
+      .addSelect('b.name', 'brandName')
+      .addSelect(
+        'SUM(oi.approvedQuantity)',
+        'totalUnits'
+      )
+      .addSelect(
+        'SUM(oi.subtotal)',
+        'totalRevenue'
+      )
+      .addSelect(
+        'AVG(oi.price)',
+        'averagePrice'
+      )
+      .groupBy('pv.id')
+      .addGroupBy('pb.name')
+      .addGroupBy('pv.name')
+      .addGroupBy('pv.sku')
+      .addGroupBy('c.name')
+      .addGroupBy('b.name')
+      .orderBy(
+        'SUM(oi.subtotal)',
+        'DESC'
+      )
+      .getRawMany();
+
+    return sales.map((sale) => ({
+      productId: sale.productId,
+      productName: sale.productName,
+      productSku: sale.productSku,
+      categoryName: sale.categoryName,
+      brandName: sale.brandName,
+      totalUnits:
+        Number(sale.totalUnits) || 0,
+      totalRevenue:
+        Number(sale.totalRevenue) || 0,
+      averagePrice:
+        Number(sale.averagePrice) || 0,
+      marginPercentage: undefined
+    }));
+  }
+
+  // =========================================================
+  // 7. SALES BY CATEGORIES
+  // =========================================================
+
+  async getSalesByCategories(
+    user: ReportAccessUser,
+    filters: any = {}
+  ) {
+    const resolvedBranchId =
+      this.resolveReportBranch(
+        user,
+        filters.branchId
+      );
+
+    const { fromDate, toDate } =
+      this.normalizeDateRange(
+        filters.from,
+        filters.to
+      );
+
+    const query = this.orderItemRepo
+      .createQueryBuilder('oi')
+      .leftJoin('oi.order', 'o')
+      .leftJoin('oi.variant', 'pv')
+      .leftJoin('pv.category', 'c')
+      .where('o.status IN (:...statuses)', {
+        statuses: ['approved', 'completed']
+      })
+      .andWhere(
+        'o.createdAt BETWEEN :from AND :to',
+        {
+          from: fromDate,
+          to: toDate
+        }
+      );
+
+    if (resolvedBranchId) {
+      query.andWhere(
+        'o.branchId = :branchId',
+        {
+          branchId: resolvedBranchId
+        }
+      );
+    }
+
+    return query
+      .select('c.id', 'categoryId')
+      .addSelect(
+        'c.name',
+        'categoryName'
+      )
+      .addSelect(
+        'SUM(oi.approvedQuantity)',
+        'totalUnits'
+      )
+      .addSelect(
+        'SUM(oi.subtotal)',
+        'totalRevenue'
+      )
+      .addSelect(
+        'AVG(oi.price)',
+        'averagePrice'
+      )
+      .addSelect(
+        'COUNT(DISTINCT o.id)',
+        'ordersCount'
+      )
+      .groupBy('c.id')
+      .addGroupBy('c.name')
+      .orderBy(
+        'SUM(oi.subtotal)',
+        'DESC'
+      )
+      .getRawMany();
+  }
+
+  // =========================================================
+  // 8. SALES BY BRANDS
+  // =========================================================
+
+  async getSalesByBrands(
+    user: ReportAccessUser,
+    filters: any = {}
+  ) {
+    const resolvedBranchId =
+      this.resolveReportBranch(
+        user,
+        filters.branchId
+      );
+
+    const { fromDate, toDate } =
+      this.normalizeDateRange(
+        filters.from,
+        filters.to
+      );
+
+    const query = this.orderItemRepo
+      .createQueryBuilder('oi')
+      .leftJoin('oi.order', 'o')
+      .leftJoin('oi.variant', 'pv')
+      .leftJoin('pv.brand', 'b')
+      .where('o.status IN (:...statuses)', {
+        statuses: ['approved', 'completed']
+      })
+      .andWhere(
+        'o.createdAt BETWEEN :from AND :to',
+        {
+          from: fromDate,
+          to: toDate
+        }
+      );
+
+    if (resolvedBranchId) {
+      query.andWhere(
+        'o.branchId = :branchId',
+        {
+          branchId: resolvedBranchId
+        }
+      );
+    }
+
+    return query
+      .select('b.id', 'brandId')
+      .addSelect('b.name', 'brandName')
+      .addSelect(
+        'SUM(oi.approvedQuantity)',
+        'totalUnits'
+      )
+      .addSelect(
+        'SUM(oi.subtotal)',
+        'totalRevenue'
+      )
+      .addSelect(
+        'AVG(oi.price)',
+        'averagePrice'
+      )
+      .addSelect(
+        'COUNT(DISTINCT o.id)',
+        'ordersCount'
+      )
+      .groupBy('b.id')
+      .addGroupBy('b.name')
+      .orderBy(
+        'SUM(oi.subtotal)',
+        'DESC'
+      )
+      .getRawMany();
+  }
+
+  // =========================================================
+  // 9. STOCK SUMMARY
+  // =========================================================
+
+  async getStockSummary(
+    user: ReportAccessUser,
+    search?: string,
+    order: 'asc' | 'desc' = 'desc',
+    branchId?: string
+  ) {
+    const resolvedBranchId =
+      this.resolveReportBranch(
+        user,
+        branchId
+      );
+
+    if (!resolvedBranchId) {
+      return [];
+    }
+
+    const whereClause = search
+      ? {
+          productBase: {
+            name: ILike(
+              `%${search}%`
+            )
+          }
+        }
+      : {};
+
+    const variants =
+      await this.variantRepo.find({
+        relations: ['productBase'],
+        where: whereClause as any
+      });
+
+    const variantsWithStock =
+      await Promise.all(
+        variants.map(async (variant) => ({
+          ...variant,
+          stock:
+            await this.productsBaseService.calculateStockByBranch(
+              variant.id,
+              resolvedBranchId
+            )
+        }))
+      );
+
+    const summary =
+      variantsWithStock.reduce(
+        (acc, variant) => {
+          const productId =
+            variant.productBase.id;
+
+          if (!acc[productId]) {
+            acc[productId] = {
+              productId,
+              productName:
+                variant.productBase.name,
+              totalStock: 0,
+              variants: []
+            };
+          }
+
+          acc[productId].variants.push({
+            variantId: variant.id,
+            name: variant.name,
+            stock: variant.stock
+          });
+
+          acc[productId].totalStock +=
+            variant.stock;
+
+          return acc;
+        },
+        {} as Record<string, any>
+      );
+
+    return Object.values(summary).sort(
+      (a: any, b: any) =>
+        order === 'asc'
+          ? a.totalStock - b.totalStock
+          : b.totalStock - a.totalStock
+    );
   }
 }
