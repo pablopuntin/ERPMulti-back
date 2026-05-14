@@ -703,13 +703,12 @@ export class ReportsService {
    */
   async getFinanceReport(user: User, from?: string, to?: string, branchId?: string) {
     const scopeBranchId = this.validateScope(user, branchId);
-    
     const startDate = from ? new Date(from) : this.startOfYear();
     const endDate = to ? new Date(to) : new Date();
 
     // Cálculo período actual
     const currentPeriod = await this.getFinancialTotals(startDate, endDate, scopeBranchId);
-    
+
     // Cálculo período anterior (para tendencias)
     const duration = endDate.getTime() - startDate.getTime();
     const prevStartDate = new Date(startDate.getTime() - duration);
@@ -745,41 +744,40 @@ export class ReportsService {
     
     const query = this.saleRepo.createQueryBuilder('sale')
       .leftJoinAndSelect('sale.items', 'item')
-      // Cargamos el producto vinculado al item de venta
       .leftJoinAndSelect('item.product', 'product')
-      // IMPORTANTE: Revisamos si la relación es con productBase
-      // En muchos ERPs, category y brand cuelgan del producto base.
-      // Ajustamos a la ruta común en este sistema:
       .leftJoinAndSelect('product.productBase', 'productBase')
       .leftJoinAndSelect('productBase.category', 'category')
       .leftJoinAndSelect('productBase.brand', 'brand')
       .where('sale.branchId = :branchId', { branchId })
       .andWhere('sale.status = :status', { status: 'COMPLETED' });
+
     if (filters.from && filters.to) {
       query.andWhere('sale.createdAt BETWEEN :from AND :to', { from: filters.from, to: filters.to });
     }
+
     const sales = await query.getMany();
     const productMap = new Map();
+
     sales.forEach(sale => {
       sale.items.forEach(item => {
         const id = item.product.id;
         const current = productMap.get(id) || {
           product_name: item.product.name,
           sku: item.product.sku,
-          // Accedemos a través de productBase
           category: item.product.productBase?.category?.name || 'Sin Categoría',
           brand: item.product.productBase?.brand?.name || 'Sin Marca',
           quantity: 0,
           total_amount: 0,
           total_cost: 0
         };
+
         current.quantity += item.quantity;
         current.total_amount += item.price * item.quantity;
         current.total_cost += (item.cost || 0) * item.quantity;
-        
         productMap.set(id, current);
       });
     });
+
     return Array.from(productMap.values()).map(p => ({
       ...p,
       margin: p.total_amount > 0 
@@ -787,18 +785,6 @@ export class ReportsService {
         : 0
     }));
   }
-  // ... (mantener validaciones y helpers anteriores)
-  
-  private validateScope(user: User, requestedBranchId?: string): string {
-    if (['root', 'gerente_general'].includes(user.role)) {
-      return requestedBranchId || user.branchId;
-    }
-    if (requestedBranchId && requestedBranchId !== user.branchId) {
-      throw new ForbiddenException('No tiene permisos para ver otra sucursal');
-    }
-    return user.branchId;
-  }
-}
 
   // --- HELPERS ---
 
@@ -828,7 +814,6 @@ export class ReportsService {
     if (['root', 'gerente_general'].includes(user.role)) {
       return requestedBranchId || user.branchId;
     }
-    // Si no es general, solo puede ver SU sucursal
     if (requestedBranchId && requestedBranchId !== user.branchId) {
       throw new ForbiddenException('No tiene permisos para ver otra sucursal');
     }
@@ -841,3 +826,4 @@ export class ReportsService {
     d.setHours(0, 0, 0, 0);
     return d;
   }
+}
