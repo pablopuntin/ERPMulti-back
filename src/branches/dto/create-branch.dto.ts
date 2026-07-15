@@ -36,7 +36,7 @@ export class CreateBranchDto {
   phone?: string;
 
   @ApiProperty({
-    example: 'central@electrotec.com',
+    example: 'central@example.com',
     description: 'Email de la sucursal',
     required: false
   })

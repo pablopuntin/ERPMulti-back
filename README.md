@@ -1,479 +1,333 @@
-# Backend ELECTROTEC
+# ERP — Auditoría Técnica v3
 
-API NestJS del ERP/POS multi-sucursal de ELECTROTEC.
-
-Este backend ya soporta operación diaria real con foco en:
-
-- encapsulamiento estricto por sucursal
-- trazabilidad de actor, documento y movimiento
-- separación progresiva entre intención comercial, realidad transaccional, realidad documental y realidad monetaria
-
-Hoy la dirección arquitectónica es esta:
-
-- `orders`: intención comercial y pre-venta
-- `sales`: realidad comercial confirmada
-- `remitos`: realidad documental y logística
-- `payments`: eventos monetarios
-- `cash`: impacto real en caja
-- `customer-credit`: read model / transición hacia un ledger formal de cuenta corriente
+**Fecha:** Julio 2026
+**Estado:** Sistema funcional con módulos core completos. Módulos secundarios en progreso.
+**Deploy:** Backend en Render (`back-wpmg.onrender.com`) | Frontend en Vercel (`front-flax-nu.vercel.app`)
+**API Docs:** `https://back-wpmg.onrender.com/api/swagger`
 
 ---
 
-## Stack
+## Stack Tecnológico
 
-- **NestJS 11**
-- **TypeORM 0.3**
-- **PostgreSQL**
-- **JWT + Passport**
-- **Swagger**
-- **Jest**
-- **XLSX** para importaciones de catálogo
-- **PDFKit** para generación de remitos PDF
+### Backend
+- **Framework:** NestJS 11 con TypeScript
+- **ORM:** TypeORM 0.3.27
+- **Base de datos:** PostgreSQL (Render)
+- **Autenticación:** JWT + Passport
+- **Documentación:** Swagger UI en `/api/swagger`
+- **Validación:** class-validator + class-transformer
+- **PDF:** PDFKit (generación de remitos)
+- **Excel:** XLSX (importación masiva de productos)
+
+### Frontend
+- **Framework:** Next.js 16 con App Router
+- **UI:** Material UI + Radix UI + TailwindCSS
+- **Estado:** React hooks + localStorage
+- **HTTP:** Axios con interceptores
 
 ---
 
-## Scripts
+## Arquitectura General
+
+```
+/src
+  /account          → Cuenta corriente (ledger, ajustes, estado de cuenta)
+  /auth             → JWT, login, switch-branch, registro
+  /branches         → Sucursales, stock por ubicación, configuración de ventas
+  /brands           → Marcas con asociación a categorías
+  /cash             → Caja diaria (apertura, cierre, movimientos)
+  /categories       → Categorías con soft-delete en cascada
+  /customers        → Clientes internos con asignación por sucursal
+  /expenses         → Gastos fijos y variables integrados a caja
+  /orders           → Remitos (ciclo completo: draft → caja → entrega → finalización)
+  /payments         → Pagos de remitos con integración a caja y ledger
+  /price-history    → Historial de cambios de precio
+  /price-rules      → Reglas de precio por marca/categoría con idempotencia
+  /product-image    → Imágenes de variantes
+  /products-base    → ProductBase con variantes, importación masiva, exportación CSV
+  /products-variants → Variantes, catálogo paginado, bulk update precios/stock
+  /purchase         → Compras a proveedores (en progreso)
+  /remitos          → Documentos de entrega con PDF descargable
+  /reports          → Reportes financieros, stock, ventas (en progreso)
+  /sales            → Ventas generadas al finalizar remitos
+  /stock            → Movimientos, transferencias, alertas, reservas
+  /stock-adjustment → Ajuste de inventario con trazabilidad
+  /suppliers        → Proveedores y productos de proveedor (CRUD básico)
+  /users            → Usuarios con roles y asignación multi-sucursal
+  /common/auth      → branch-scope.util: resolución de scope por sucursal
+```
+
+---
+
+## Módulos Completos y Operativos
+
+### Auth
+- Login con bcrypt + JWT
+- `switch-branch`: cambia sucursal activa sin nuevo login, reemite token
+- Normalización de roles (compatibilidad con nombres legacy)
+- `buildAuthScope`: permisos, sucursales permitidas y acceso global por rol
+- Registro protegido por rol `root`
+
+### Users
+- CRUD con paginación
+- Creación con asignación de sucursales y permisos granulares por sucursal
+- Soft delete con reglas jerárquicas (root no se puede eliminar, gerente_general puede eliminar vendedores/cajeros, etc.)
+- Reset de contraseña por root
+- Sanitización de password en todas las respuestas
+
+### Branches
+- CRUD con soft delete lógico
+- Stock por sucursal con filtro de stock bajo
+- Configuración `restrictSalesToBranchStock`: modo estricto que bloquea ventas sin stock
+
+### Categories / Brands
+- Soft delete en cascada: desactivar categoría desactiva marcas sin otras categorías, y sus productos/variantes
+- Asociación muchos-a-muchos categoría ↔ marca
+- Restauración de categorías desactivadas
+
+### Products Base + Variants
+- Estructura jerárquica: `Category → Brand → ProductBase → ProductVariant`
+- Importación masiva desde Excel o JSON con preview transaccional
+  - Detección y reporte de errores por fila antes de confirmar
+  - Creación automática de categorías, marcas y productBase faltantes
+  - Upsert de variantes por SKU
+  - Asignación automática a sucursal activa
+- Exportación de template CSV con datos actuales
+- Generación automática de SKU
+- Catálogo paginado con filtros por categoría, marca, productBase, variante y búsqueda libre
+- Stock por sucursal enriquecido en cada variante del catálogo
+- Bulk update de precios: modos directo, porcentaje e incremento, con base en precio de venta o costo
+- Bulk update de stock por ubicación
+- Historial de cambios de precio integrado
+- Soft delete en cascada (ProductBase desactiva todas sus variantes)
+
+### Stock
+- `StockLocation`: stock físico por variante + sucursal + tipo de ubicación (branch / warehouse / transit / preorder)
+- Ciclo completo de reserva: `reserve → release / consume`
+- Transferencias entre ubicaciones con historial (`StockTransfer`)
+- Alertas de stock bajo por ubicación y total, con resolución manual
+- `ensureVariantAssignment`: crea la asignación variante-sucursal si no existe
+- `syncStockSalePrice`: sincroniza precio de venta en todos los StockLocations al actualizar variante
+
+### Stock Adjustment (Fase 3A)
+- Servicio dedicado `StockAdjustmentService` con transacción atómica
+- Crea movimiento de tipo `ADJUSTMENT` con `previousQuantity` y `newQuantity`
+- Crea o actualiza `StockLocation` en la misma transacción
+- Alerta automática si el ajuste supera el 20% del stock total
+- Historial filtrable por variante y sucursal
+- Roles restringidos: solo `root` y `gerente_general`
+
+### Orders (Remitos)
+- Estados: `DRAFT → SENT_TO_CASH → APPROVED / PARTIALLY_APPROVED / REJECTED → COMPLETED`
+- Revisión en caja con aprobación parcial por ítem y manejo de stock pendiente
+- Entrega parcial: múltiples eventos de entrega, reserva consumida por delta
+- Cola de caja: remitos enviados a caja con stock disponible enriquecido en tiempo real
+- Entregas pendientes: remitos pagos con entrega incompleta
+- Modo estricto por sucursal: bloquea remitos con stock pendiente
+- Generación de número de remito único con retry
+- Métricas de venta por vendedor
+- Lógica de negocio robusta: `buildStockExceededMessage`, `isStrictStockBranch`
+- `FinalizeSaleUseCase`: caso de uso separado para finalizar en caja
+
+### Payments
+- Registro de pago con lock pesimista sobre la orden (`pessimistic_write`)
+- Integración atómica con caja (movimiento INCOME) y ledger (syncOrderDebt)
+- Reversión de pago: revierte ledger, anula asiento original, registra egreso en caja (abierta o nueva)
+- Validación de monto pendiente vs pago solicitado
+- Soporte para `current_account` (cuenta corriente) sin requerir pago total
+- `registerForOrderFinalizationTx`: método transaccional para uso desde FinalizeSaleUseCase
+
+### Account / Cuenta Corriente (Fase 3B)
+- `AccountLedgerService`: libro mayor con idempotencia por clave compuesta
+- Secuencia por sucursal (`branchScopedSequence`) para trazabilidad
+- Balance acumulado por cliente/sucursal (`balanceAfter`)
+- Validación de orden temporal de movimientos
+- `syncOrderDebt`: crea automáticamente el débito y crédito al finalizar un remito
+- `reversePayment`: reversión completa (ledger + anulación asiento + caja)
+- `AccountAdjustmentsService`: ajustes manuales con autorización
+- `AccountStatementService`: estado de cuenta del cliente con saldo actual
+- `ensureCustomerBelongsToBranch`: valida que el cliente pertenezca a la sucursal activa
+
+### Cash
+- Apertura y cierre de caja por sucursal
+- Cierre automático de cajas viejas al operar en un nuevo día
+- `getOrCreateOperationalRegisterTx`: crea o recupera la caja operativa dentro de una transacción
+- Integración con gastos, pagos, compras y reversiones
+
+### Remitos (Documentos)
+- Dos tipos: `CUMULATIVE` (estado completo del remito) y `DELIVERY_EVENT` (entrega puntual)
+- Generación de PDF con PDFKit: datos de cliente, vendedor, sucursal, ítems entregados y pendientes, resumen financiero, firmas
+- Ocultamiento de precios en remitos sin cobro registrado
+- Filtros por sucursal, venta, orden y cliente
+
+### Sales
+- Creadas automáticamente al finalizar un remito en caja
+- Idempotencia: no crea duplicados si ya existe una venta para la orden
+- Estado calculado desde fulfillment + payment status de la orden
+- `SaleItem` con snapshot de producto, SKU, precios y cantidades
+- Tipos de plan de pago: `CASH`, `CURRENT_ACCOUNT`, `MIXED`
+
+### Price Rules
+- Reglas por marca o categoría con rango de fechas
+- Aplicación única por regla (`appliedAt` evita reaplicación)
+- Registro en historial de precios con fuente `rule`
+
+### Price History
+- Registro de cada cambio con precio anterior, nuevo, fuente (`manual` / `rule` / `system`) y usuario
+
+### Customers
+- Asignación a sucursal activa (no multi-sucursal por UI)
+- Búsqueda por nombre, documento y teléfono
+- Paginación opcional con backward compatibility
+- Soft delete lógico
+
+### Expenses
+- Gastos fijos y variables con integración automática a caja como movimiento EXPENSE
+- Asociación opcional a proveedor
+
+---
+
+## Módulos en Progreso
+
+### Reports
+- **Implementado:** reportes financieros (ingresos/egresos/balance con tendencias vs período anterior), movimientos de caja, ganancia, resumen diario, historial de precios, stock summary, ventas por producto/categoría/marca
+- **Pendiente:** los reportes de ventas (`getSalesByProducts`, `getSalesByCategories`, `getSalesByBrands`) dependen de la entidad `Sale` y `SaleItem` — si el flujo de finalización no genera ventas correctamente, estos reportes devuelven vacío. Requiere validación end-to-end.
+- **Pendiente:** reporte de ganancia es alias de finance report; falta implementar margen real (precio venta vs costo).
+
+### Purchase
+- Registro de compras por proveedor con aumento de stock y egreso de caja
+- **Pendiente:** el stock se registra como movimiento genérico en `StockMovement` pero no actualiza `StockLocation`. El stock real no cambia. Requiere integración con `StockService.createStockLocation` o `adjustStock`.
+- **Pendiente:** sin paginación ni filtros por sucursal en listado.
+
+### Suppliers
+- CRUD completo de proveedores y productos de proveedor
+- `StockService` y `CashService` están inyectados pero no se usan en ningún método actual (imports muertos del refactor)
+- **Pendiente:** integración real con flujo de compras y stock
+
+---
+
+## Seguridad y Permisos
+
+### Roles
+| Rol | Descripción |
+|-----|-------------|
+| `root` | Acceso total, sin restricciones |
+| `gerente_general` | Acceso multi-sucursal si tiene `canViewAllBranches` |
+| `gerente_sucursal` | Acceso a su sucursal únicamente |
+| `vendedor` | Operación de ventas y productos |
+| `cajero` | Caja, stock de lectura, ventas de lectura |
+
+### Branch Scope
+Todos los módulos operativos usan `resolveBranchScope` y `ensureBranchAccess` del utilitario `branch-scope.util`. El scope se resuelve desde el token JWT (`activeBranchId`, `hasAllBranchAccess`, `allowedBranchIds`).
+
+### Matriz de permisos relevante
+
+| Operación | root | ger_general | ger_sucursal | vendedor | cajero |
+|-----------|------|-------------|--------------|----------|--------|
+| Ajuste inventario | ✅ | ✅ | ❌ | ❌ | ❌ |
+| Eliminar mov. stock | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Reportes financieros | ✅ | ✅ | ✅ | ❌ | ❌ |
+| Importar productos | ✅ | ✅ | ✅ | ❌ | ❌ |
+| Crear/transferir stock | ✅ | ✅ | ✅ | ❌ | ❌ |
+| Ver stock summary | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Resumen diario | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Reversar pagos | ✅ | ✅ | ❌ | ❌ | ❌ |
+
+---
+
+## Base de Datos
+
+### Configuración
+```typescript
+{
+  type: 'postgres',
+  synchronize: true,           // OK en desarrollo
+  dropSchema: process.env.TYPEORM_DROP_SCHEMA === 'true'
+}
+```
+
+### Entidades principales
+- `User`, `Role`, `Branch`, `BranchUser`
+- `Category`, `Brand`, `ProductsBase`, `ProductVariant`, `ProductVariantBranch`, `ProductImage`
+- `StockLocation`, `StockMovement`, `StockTransfer`, `StockAlert`
+- `Order`, `OrderItem`, `OrderDeliveryEvent`, `OrderDeliveryEventItem`
+- `Sale`, `SaleItem`
+- `Remito`, `RemitoItem`
+- `Payment`, `CashRegister`, `CashMovement`
+- `AccountEntry`, `AccountAdjustment`
+- `Customer`, `CustomerBranch`
+- `FixedExpense`, `VariableExpense`
+- `PriceRule`, `PriceChangeHistory`
+- `Purchase`, `PurchaseItem`
+- `Supplier`, `SupplierProduct`
+
+---
+
+## Variables de Entorno
+
+### Backend (Render)
+```env
+DATABASE_URL=
+JWT_SECRET=
+CORS_ORIGINS=
+TYPEORM_DROP_SCHEMA=false
+ROOT_EMAIL=
+ROOT_PASSWORD=
+```
+
+### Frontend (Vercel)
+```env
+NEXT_PUBLIC_API_URL=
+```
+
+---
+
+## Problemas Conocidos
+
+| Módulo | Problema | Estado |
+|--------|----------|--------|
+| `Purchase` | Stock no se actualiza en `StockLocation` | Pendiente |
+| `Suppliers` | `StockService` y `CashService` inyectados sin uso | Pendiente limpieza |
+| `Reports` | Reportes de ventas dependen de que `Sale` se genere correctamente | Requiere validación |
+| `Reports` | Ganancia = finanzas, sin margen real implementado | Pendiente |
+| `Categories` | `findInactive` y `restore` no expuestos en controller | Pendiente |
+| General | `synchronize: true` en producción — pendiente migrar a migraciones controladas | Pendiente |
+| General | Logs sin formato estructurado | Pendiente |
+
+---
+
+## Pendientes para Producción
+
+- [ ] Desactivar `synchronize: true` y activar migraciones TypeORM
+- [ ] Logger estructurado por módulo con nivel, acción y userId
+- [ ] Integrar stock real en módulo `Purchase`
+- [ ] Limpiar imports muertos en `SuppliersService`
+- [ ] Validar flujo completo de generación de `Sale` y su impacto en reportes
+- [ ] Implementar margen real en reporte de ganancia
+- [ ] Exponer `findInactive` y `restore` en `CategoriesController`
+- [ ] Tests de integración en flujos críticos: finalización de remito, reversión de pago, ajuste de stock
+
+---
+
+## Comandos
 
 ```bash
-npm install
+# Backend
 npm run start:dev
 npm run build
 npm run start:prod
 npm run lint
-npm run test
-npm run test:e2e
-```
 
-- **`start:dev`**
-  - levanta el backend en modo desarrollo con watch
+# Reset de schema (solo desarrollo)
+# Setear TYPEORM_DROP_SCHEMA=true y reiniciar
 
-- **`build`**
-  - compila a `dist/`
-
-- **`start:prod`**
-  - ejecuta el build compilado
-
-- **`lint`**
-  - ejecuta ESLint con autofix
-
-- **`test`**
-  - pruebas unitarias existentes
-
-- **`test:e2e`**
-  - pruebas end-to-end existentes
-
----
-
-## Variables de entorno mínimas
-
-```env
-PORT=4000
-NODE_ENV=development
-
-DB_HOST=localhost
-DB_PORT=5432
-DB_USERNAME=postgres
-DB_PASSWORD=postgres
-DB_DATABASE=electrotec
-
-JWT_SECRET=change-me
-JWT_EXPIRES_IN=7d
-
-ROOT_EMAIL=root@electrotec.com
-ROOT_PASSWORD=RootSecurePassword123!
+# Frontend
+npm run dev
+npm run build
+npm run start
 ```
 
 ---
 
-## Setup local
-
-```bash
-npm install
-npm run start:dev
-```
-
-URLs por defecto:
-
-- **API**: `http://localhost:4000/api`
-- **Swagger**: `http://localhost:4000/api/swagger`
-
-## Nota sobre rutas
-
-La API usa prefijo global **`/api`**.
-
-Ejemplos reales:
-
-```http
-POST /api/auth/login
-GET  /api/orders
-GET  /api/remitos
-POST /api/stock/transfer
-GET  /api/reports/daily
-GET  /api/customers/:id/credit-summary
-```
-
----
-
-## Arquitectura modular real
-
-Módulos detectados actualmente en la aplicación:
-
-- **`auth/`**
-- **`users/`**
-- **`branches/`**
-- **`customers/`**
-- **`categories/`**
-- **`brands/`**
-- **`suppliers/`**
-- **`products-base/`**
-- **`products-variants/`**
-- **`product-image/`**
-- **`stock/`**
-- **`price-history/`**
-- **`price-rules/`**
-- **`orders/`**
-- **`sales/`**
-- **`remitos/`**
-- **`payments/`**
-- **`cash/`**
-- **`expenses/`**
-- **`purchase/`**
-- **`reports/`**
-
-Además:
-
-- `customers/`, `orders/` y `payments/` ya integran la capa actual de **cuenta corriente de clientes**
-- `remitos/` ya concentra la **lectura documental** y la **generación PDF** de remitos
-- `orders/` conserva el flujo operativo de revisión, entrega y finalización, pero ya no debe seguir absorbiendo responsabilidades documentales nuevas
-
----
-
-## Principios de arquitectura vigentes
-
-### 1. Multi-sucursal primero
-
-Toda operación operativa, financiera o documental debe quedar encapsulada por sucursal.
-
-### 2. `orders` no es la verdad final del negocio
-
-`Order` representa una intención comercial y el flujo previo a la concreción en caja.
-
-No debe consolidarse como fuente de verdad de:
-
-- deuda viva
-- documentos finales
-- pagos aplicados históricamente
-- reportes comerciales finales
-
-### 3. `sales` es la realidad comercial confirmada
-
-Cuando caja confirma una operación, se genera una `Sale` con snapshot comercial consistente.
-
-### 4. `remitos` es la realidad documental y logística
-
-Los remitos, sus PDFs y sus lecturas deben vivir en `remitos/`, no en `orders/`.
-
-### 5. `payments` y `cash` no son lo mismo
-
-- `Payment` representa un evento monetario
-- `CashMovement` representa el impacto efectivo en caja
-
-### 6. La cuenta corriente debe terminar en ledger
-
-La capa actual de cuenta corriente funciona como transición operativa útil, pero el objetivo es evolucionar a un ledger con movimientos explícitos, reversión y trazabilidad estricta.
-
----
-
-## Modelo de autenticación y scope multi-sucursal
-
-El JWT expone contexto suficiente para encapsular operaciones por sucursal:
-
-```json
-{
-  "sub": "user-id",
-  "email": "user@email.com",
-  "name": "Usuario",
-  "role": "manager",
-  "branchId": "branch-id",
-  "activeBranchId": "branch-id",
-  "allowedBranchIds": ["branch-id"],
-  "hasAllBranchAccess": false,
-  "canCreateUsers": ["cashier", "seller"],
-  "permissions": ["operate_branch", "manage_products", "view_branch_reports"]
-}
-```
-
-### Reglas actuales
-
-- si llega **`branchId`** explícito, el backend valida acceso a esa sucursal
-- si no llega, los módulos operativos deben resolver sucursal desde **`activeBranchId`** o `branchId` del JWT
-- usuarios globales pueden cambiar sucursal vía **`POST /auth/switch-branch`**
-- la utilidad **`src/common/auth/branch-scope.util.ts`** es la base compartida para endurecer lecturas y escrituras multi-sucursal
-
-### Invariante importante
-
-Los usuarios globales también operan por **sucursal activa** en flujos diarios.
-
-La vista multi-sucursal debe quedar reservada principalmente a:
-
-- reportes comparativos
-- auditoría
-- operaciones expresamente autorizadas
-
----
-
-## Flujos operativos actuales
-
-### Orders, caja, sale y remito
-
-Flujo simplificado actual:
-
-1. se crea `Order`
-2. se envía a caja
-3. caja revisa cantidades aprobadas y entregables
-4. se registra pago si corresponde
-5. se sincroniza deuda / cuenta corriente actual
-6. se crea `Sale`
-7. se crea o actualiza `Remito`
-8. se emite PDF desde `remitos/`
-
-### Remitos
-
-Hoy existen:
-
-- **remito acumulado**
-- **remito por evento de entrega**
-
-Y `remitos/` ya expone lectura dedicada:
-
-- `GET /remitos`
-- `GET /remitos/:id`
-- `GET /remitos/:id/pdf`
-
-con filtros por:
-
-- `branchId`
-- `saleId`
-- `orderId`
-- `customerId`
-
-### Caja
-
-- cada caja está asociada a una sucursal
-- `cash_register` y `cash_movements` son la base de la caja operativa
-- `GET /cash/current` requiere una sucursal resuelta o activa
-
-### Cuenta corriente
-
-Estado actual:
-
-- ya existe un MVP funcional
-- la deuda se sincroniza desde órdenes/pagos
-- ya hay lectura por resumen, comprobantes y movimientos
-- todavía falta blindar el modelo final como ledger de cuenta corriente
-
-### Catálogo y stock por sucursal
-
-- `product_variant_branches` define **visibilidad/asignación comercial** por sucursal
-- `stock_locations` sigue siendo la fuente de verdad del stock físico por ubicación
-- una variante puede ser visible en una sucursal aunque tenga stock cero
-- altas manuales e importaciones asignan variantes automáticamente a la sucursal activa resuelta
-
-### Compras y stock
-
-Actualmente existe módulo `purchase/`, pero el modelo todavía debe endurecerse para separar con claridad:
-
-- orden de compra
-- recepción parcial/total
-- aumento real de stock al recepcionar
-- impacto económico y documental
-
----
-
-## Endpoints destacados
-
-### Auth
-
-```http
-POST /auth/login
-POST /auth/register
-POST /auth/switch-branch
-```
-
-### Clientes y cuenta corriente actual
-
-```http
-GET    /customers
-POST   /customers
-PATCH  /customers/:id
-GET    /customers/:id/credit-summary
-GET    /customers/:id/credit-documents
-GET    /customers/:id/credit-movements
-```
-
-### Catálogo y stock
-
-```http
-GET  /products-base
-POST /products-base
-POST /products-base/import/preview-file
-POST /products-base/import/file
-
-GET  /product-variants
-GET  /product-variants/catalog
-POST /product-variants
-PATCH /product-variants/:id
-POST /product-variants/bulk-update-prices
-GET  /product-variants/:id/stock-by-branch
-
-POST /stock/transfer
-GET  /stock/transfers
-GET  /stock/transfers/:id
-GET  /stock/alerts/active
-```
-
-### Operación comercial y documental
-
-```http
-GET    /orders
-POST   /orders
-GET    /orders/:id
-GET    /orders/cash/pending-deliveries
-
-GET    /remitos
-GET    /remitos/:id
-GET    /remitos/:id/pdf
-
-GET    /payments
-POST   /payments
-
-GET    /cash/current
-POST   /cash/open
-POST   /cash/movement
-
-GET    /expenses/fixed
-POST   /expenses/fixed
-GET    /expenses/variable
-POST   /expenses/variable
-
-GET    /reports/finance
-GET    /reports/cash-movements
-GET    /reports/profit
-GET    /reports/daily
-GET    /reports/stock
-```
-
----
-
-## Archivos y zonas clave del backend
-
-### Scope multi-sucursal
-
-- **`src/common/auth/branch-scope.util.ts`**
-  - resolver sucursal activa
-  - validar acceso a sucursal solicitada
-  - servir de base para lecturas y escrituras blindadas
-
-### Orders
-
-- **`src/orders/orders.service.ts`**
-  - flujo operativo de caja
-  - revisión
-  - entrega
-  - finalización
-  - puente actual hacia `sales` y `remitos`
-
-- **`src/orders/orders.controller.ts`**
-  - endpoints operativos
-
-### Sales
-
-- **`src/sales/entities/sale.entity.ts`**
-  - realidad comercial confirmada
-
-### Remitos
-
-- **`src/remitos/remitos.service.ts`**
-  - creación y actualización de remitos
-  - lectura filtrada
-  - acceso al PDF
-
-- **`src/remitos/remito-pdf.service.ts`**
-  - layout PDF del remito
-  - snapshots comerciales/documentales
-
-- **`src/remitos/remitos.controller.ts`**
-  - API documental dedicada
-
-### Cuenta corriente actual
-
-- `customers/`
-- `payments/`
-- servicios internos de customer credit
-
-Esta parte existe, pero sigue siendo zona de evolución prioritaria.
-
----
-
-## Reglas de negocio relevantes hoy
-
-- el cobro puede registrarse aunque no exista stock total para entregar en el momento
-- si hay faltante de stock, una venta común solo puede finalizarse con pago total
-- la excepción es la venta en cuenta corriente
-- en remitos totalmente impagos deben ocultarse importes
-- si hubo pago parcial / saldo a cuenta corriente, el remito debe seguir mostrando trazabilidad del cobro y saldo
-- cuenta corriente, cobros y movimientos deben preservar encapsulamiento estricto por sucursal
-- la operación diaria usa sucursal activa; la visión multi-sucursal es una excepción analítica
-
----
-
-## Estado actual
-
-### Implementado
-
-- autenticación JWT con contexto de sucursal
-- autorización por rol y permisos
-- `sales` introducido como realidad comercial derivada de `orders`
-- `remitos` introducido como módulo documental y logístico dedicado
-- lectura y PDF de remitos ya migrados a `remitos/`
-- caja integrada con pagos y reportes
-- gastos impactando caja y reportes
-- stock físico por ubicación
-- asignación comercial de variantes por sucursal
-- cuenta corriente con resumen, documentos y movimientos de lectura
-
-### En transición
-
-- endurecimiento final de `orders` para que conserve solo intención y trazabilidad pre-venta
-- migración completa de lógica logística residual desde `orders` a `remitos`
-- evolución de cuenta corriente hacia ledger explícito
-- mejoras de compras con recepción y aumento de stock por evento
-- reportes avanzados apoyados más en `sales`, `remitos`, `cash` y futuros ledgers
-
----
-
-## Pendientes técnicos conocidos
-
-- consolidar la resolución de sucursal en una estrategia compartida para todos los módulos
-- terminar de retirar rutas y consumos legacy de remito bajo `orders`
-- reforzar consistencia entre `orders`, `sales`, `remitos`, `payments`, `cash` y `customer-credit`
-- formalizar el ledger de cuenta corriente con reversión, ajustes y estados de cuenta
-- modelar compras con recepción parcial/total e impacto de stock por evento de recepción
-- renombrar endpoints cuyo nombre ya no refleja exactamente el contrato actual
-- reducir logs de depuración una vez cerrado el diagnóstico operativo
-
----
-
-## Documentos relacionados
-
-- **`../front/README.md`**
-  - frontend operativo y reglas de UI
-
-- **`../README_TOTAL.md`**
-  - visión integral del proyecto
-
-- **`../ARQUITECTURA_SALES_REMITOS_CC.md`**
-  - arquitectura objetivo del núcleo comercial/documental/financiero
-
-- **`../README_IMPLEMENTACION_FUTURA.md`**
-  - hoja de ruta recomendada para crédito, reportes avanzados, stock manual y compras
+**Última actualización:** Julio 2026
+**Próxima revisión:** Post integración de Purchase con StockLocation

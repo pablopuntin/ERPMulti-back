@@ -40,16 +40,7 @@ export class CategoriesService {
     return 'Categoría creada';
   }
 
-  // async findAll() {
-  //   const categories = await this.categoryRepository.find();
-
-  //    return categories.map(cat => ({
-  //   id: cat.id,
-  //   name: cat.name,
-  //   description: cat.description,
-  // }));
-  // }
-
+  
   //refactor, findall solo muestra pos activos
   async findAll() {
     const categories = await this.categoryRepository.find({
@@ -63,16 +54,7 @@ export class CategoriesService {
     }));
   }
 
-  //  async findOne(id: string) {
-  //     const variant = await this.categoryRepository.findOne({
-  //       where: { id },
-  //       relations: ["productBase", "supplierProducts"],
-  //     });
-  //     if (!variant) throw new NotFoundException("Variante no encontrada");
-  //     return variant;
-  //   }
-
-  //refactor
+  
   async findOne(id: string) {
     const category = await this.categoryRepository.findOne({
       where: { id },
@@ -177,37 +159,7 @@ export class CategoriesService {
     };
   }
 
-  //refactor
-  // async findBrandsWithProducts(categoryId: string) {
-  //   const category = await this.categoryRepository.findOne({
-  //     where: { id: categoryId, isActive: true },
-  //     relations: [
-  //       'brands',
-  //       'brands.productsBase',
-  //       'brands.productsBase.variants'
-  //     ],
-  //   });
-
-  //   if (!category) {
-  //     throw new NotFoundException('Categoría no encontrada');
-  //   }
-
-  //   return category.brands
-  //     .filter(b => b.isActive)
-  //     .map(brand => ({
-  //       id: brand.id,
-  //       name: brand.name,
-  //       imgURL: brand.imgURL,
-  //       productsBase: brand.productsBase
-  //         ?.filter(pb => pb.isActive)
-  //         .map(pb => ({
-  //           id: pb.id,
-  //           name: pb.name,
-  //           description: pb.description,
-  //           variants: pb.variants?.filter(v => v.isActive) ?? []
-  //         })) ?? []
-  //     }));
-  // }
+ 
 
   async findBrandsByCategory(categoryId: string) {
     const category = await this.categoryRepository.findOne({

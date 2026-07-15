@@ -9,6 +9,7 @@ import { StockLocation } from 'src/branches/entities/stock-location.entity';
 import { ProductVariantBranch } from './entities/product-variant-branch.entity';
 import { PriceHistoryModule } from 'src/price-history/price-history.module';
 import { StockModule } from 'src/stock/stock.module';
+import { ProductSeedService } from 'src/common/seeds/product-seed-multiSuc';
 
 @Module({
   imports: [
@@ -23,7 +24,7 @@ import { StockModule } from 'src/stock/stock.module';
     forwardRef(() => StockModule)
   ],
   controllers: [ProductsVariantsController],
-  providers: [ProductsVariantsService],
+  providers: [ProductsVariantsService, ProductSeedService],
   exports: [ProductsVariantsService]
 })
 export class ProductsVariantsModule {}

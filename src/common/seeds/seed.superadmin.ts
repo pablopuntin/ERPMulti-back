@@ -59,7 +59,7 @@ export class InitialSeeder implements OnModuleInit {
       }
 
       // 2️⃣ Crear root inicial si no existe
-      const rootEmail = process.env.ROOT_EMAIL || 'root@electrotec.com';
+      const rootEmail = process.env.ROOT_EMAIL || 'root@example.com';
       const rootPassword =
         process.env.ROOT_PASSWORD || 'RootSecurePassword123!';
 

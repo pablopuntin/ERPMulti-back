@@ -1,35 +1,3 @@
-// //refactor
-// import { Controller, Get, Query } from '@nestjs/common';
-// import { ReportsService } from './reports.service';
-// import { ApiTags, ApiOperation } from '@nestjs/swagger';
-// import { ApiQuery } from '@nestjs/swagger';
-
-// @ApiTags('Reports')
-// @Controller('reports')
-// export class ReportsController {
-//   constructor(private readonly service: ReportsService) {}
-
-//   @Get('stock')
-// @ApiOperation({ summary: 'Resumen consolidado de stock por producto' })
-// @ApiQuery({
-//   name: 'search',
-//   required: false,
-//   type: String,
-// })
-// @ApiQuery({
-//   name: 'order',
-//   required: false,
-//   enum: ['asc', 'desc'],
-//   default: 'desc',
-// })
-// getStockSummary(
-//   @Query('search') search?: string,
-//   @Query('order') order: 'asc' | 'desc' = 'desc',
-// ) {
-//   return this.service.getStockSummary(search, order);
-// }
-
-//refactor
 import { Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
 import { ReportsService } from './reports.service';
 import { ApiTags, ApiOperation, ApiQuery } from '@nestjs/swagger';

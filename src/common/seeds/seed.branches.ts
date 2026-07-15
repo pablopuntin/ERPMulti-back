@@ -22,7 +22,7 @@ export class BranchSeeder implements OnModuleInit {
           name: 'Sucursal Central',
           address: 'Av. Corrientes 1234, Buenos Aires',
           phone: '+54 11 1234-5678',
-          email: 'central@electrotec.com',
+          email: 'central@example.com',
           type: BranchType.BRANCH,
           openingHours: {
             monday: { open: '09:00', close: '18:00' },
@@ -40,7 +40,7 @@ export class BranchSeeder implements OnModuleInit {
           name: 'Sucursal Norte',
           address: 'Av. Cabildo 2500, Buenos Aires',
           phone: '+54 11 2345-6789',
-          email: 'norte@electrotec.com',
+          email: 'norte@example.com',
           type: BranchType.BRANCH,
           openingHours: {
             monday: { open: '09:00', close: '18:00' },
@@ -58,7 +58,7 @@ export class BranchSeeder implements OnModuleInit {
           name: 'Sucursal Sur',
           address: 'Av. Rivadavia 3500, Buenos Aires',
           phone: '+54 11 3456-7890',
-          email: 'sur@electrotec.com',
+          email: 'sur@example.com',
           type: BranchType.BRANCH,
           openingHours: {
             monday: { open: '09:00', close: '18:00' },
@@ -76,7 +76,7 @@ export class BranchSeeder implements OnModuleInit {
           name: 'Depósito Central',
           address: 'Ruta Panamericana Km 25, Buenos Aires',
           phone: '+54 11 4567-8901',
-          email: 'deposito@electrotec.com',
+          email: 'deposito@example.com',
           type: BranchType.WAREHOUSE,
           openingHours: {
             monday: { open: '08:00', close: '17:00' },

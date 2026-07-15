@@ -12,17 +12,24 @@ async function bootstrap() {
     ? process.env.CORS_ORIGINS.split(',')
     : ['http://localhost:3000', 'http://localhost:5173'];
 
-  app.enableCors({
-    origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        callback(new Error(`CORS: origin not allowed — ${origin}`));
-      }
-    },
-    credentials: true,
-    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS'
-  });
+  // app.enableCors({
+  //   origin: (origin, callback) => {
+  //     if (!origin || allowedOrigins.includes(origin)) {
+  //       callback(null, true);
+  //     } else {
+  //       callback(new Error(`CORS: origin not allowed — ${origin}`));
+  //     }
+  //   },
+  //   credentials: true,
+  //   methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS'
+  // });
+
+  // Temporalmente más permisivo en local para que no te trabe el desarrollo
+app.enableCors({
+  origin: true, // 👈 Permite cualquier origen que haga la petición (ideal para pruebas locales)
+  credentials: true,
+  methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS'
+});
 
   app.useGlobalPipes(
     new ValidationPipe({
@@ -33,9 +40,9 @@ async function bootstrap() {
   );
 
   const config = new DocumentBuilder()
-    .setTitle('Electrotec API')
+    .setTitle('Business Management API')
     .setDescription(
-      'API desarrollada con NestJS — autenticación, roles y módulos dinámicos para Electrotec.'
+      'REST API desarrollada con NestJS para la gestión de productos, ventas, clientes, caja, cuentas corrientes y administración de sucursales.'
     )
     .setVersion('1.0.0')
     .addBearerAuth() // 👈 usa el esquema por defecto "bearer"
@@ -45,7 +52,7 @@ async function bootstrap() {
   SwaggerModule.setup('api/swagger', app, document);
 
   //await app.listen(process.env.PORT ?? 3000);
-  const port = process.env.PORT || 3000;
+  const port = process.env.PORT || 4000;
 await app.listen(port);
 
 console.log(`🚀 App running on port ${port}`);

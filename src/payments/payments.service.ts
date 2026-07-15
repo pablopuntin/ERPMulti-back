@@ -373,19 +373,36 @@ export class PaymentsService {
     return this.findOne(userScope, id);
   }
 
-  async remove(userScope: ScopedUser, id: string, dto?: ReversePaymentDto) {
-    const result = await this.accountLedgerService.reversePayment({
-      paymentId: id,
-      userScope,
-      reason: dto?.reason
-    });
+  // async remove(userScope: ScopedUser, id: string, dto?: ReversePaymentDto) {
+  //   const result = await this.accountLedgerService.reversePayment({
+  //     paymentId: id,
+  //     userScope,
+  //     reason: dto?.reason
+  //   });
 
-    const payment = await this.findOne(userScope, id);
-    return {
-      reversed: true,
-      payment,
-      orderId: result.orderId,
-      receiptIds: result.receiptIds
-    };
-  }
+  //   const payment = await this.findOne(userScope, id);
+  //   return {
+  //     reversed: true,
+  //     payment,
+  //     orderId: result.orderId,
+  //     receiptIds: result.receiptIds
+  //   };
+  // }
+
+  async remove(userScope: ScopedUser, id: string, dto?: ReversePaymentDto) {
+  const result = await this.accountLedgerService.reversePayment({
+    paymentId: id,
+    userScope,
+    reason: dto?.reason
+  });
+
+  const payment = await this.findOne(userScope, id);
+  
+  return {
+    reversed: true,
+    payment,
+    orderId: payment.orderId, // Traído directamente de la entidad local
+    receiptIds: undefined     // Se envía undefined ya que la reversión no genera comprobantes
+  };
+}
 }
