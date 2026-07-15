@@ -24,23 +24,15 @@ async function bootstrap() {
   //   methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS'
   // });
 
-//   // Temporalmente más permisivo en local para que no te trabe el desarrollo
-// app.enableCors({
-//   origin: true, // 👈 Permite cualquier origen que haga la petición (ideal para pruebas locales)
-//   credentials: true,
-//   methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS'
-// });
-
-
-
-  // Habilitar CORS para permitir que Vercel se conecte a Render
+  // Temporalmente más permisivo en local para que no te trabe el desarrollo
   app.enableCors({
-    origin: [
-      'https://erp-multi-front.vercel.app', // URL de producción de Vercel
-          ],
-    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
-    credentials: true,
-  });
+  origin: true, // Permite que tu front local le hable sin problemas
+  credentials: true,
+  methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
+  preflightContinue: false, // 👈 NestJS manejará las peticiones OPTIONS automáticamente
+  optionsSuccessStatus: 204 // 👈 Responde con un 204 estándar a los preflights
+});
+
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true, // elimina propiedades que no estén en el DTO
