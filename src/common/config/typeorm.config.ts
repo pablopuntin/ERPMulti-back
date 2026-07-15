@@ -20,6 +20,6 @@ export const getTypeOrmConfig = (
 
     autoLoadEntities: true,
     synchronize: true, // OK en desarrollo
-    dropSchema: config.get<string>('TYPEORM_DROP_SCHEMA') === 'false',
+    dropSchema: config.get<string>('TYPEORM_DROP_SCHEMA') === 'true',
   };
 };
