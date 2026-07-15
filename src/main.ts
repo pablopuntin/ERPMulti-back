@@ -24,13 +24,23 @@ async function bootstrap() {
   //   methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS'
   // });
 
-  // Temporalmente más permisivo en local para que no te trabe el desarrollo
-app.enableCors({
-  origin: true, // 👈 Permite cualquier origen que haga la petición (ideal para pruebas locales)
-  credentials: true,
-  methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS'
-});
+//   // Temporalmente más permisivo en local para que no te trabe el desarrollo
+// app.enableCors({
+//   origin: true, // 👈 Permite cualquier origen que haga la petición (ideal para pruebas locales)
+//   credentials: true,
+//   methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS'
+// });
 
+
+
+  // Habilitar CORS para permitir que Vercel se conecte a Render
+  app.enableCors({
+    origin: [
+      'https://erp-multi-front.vercel.app', // URL de producción de Vercel
+          ],
+    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
+    credentials: true,
+  });
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true, // elimina propiedades que no estén en el DTO
