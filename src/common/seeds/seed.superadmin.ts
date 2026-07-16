@@ -59,9 +59,9 @@ export class InitialSeeder implements OnModuleInit {
       }
 
       // 2️⃣ Crear root inicial si no existe
-      const rootEmail = process.env.ROOT_EMAIL || 'root@example.com';
+      const rootEmail = process.env.ROOT_EMAIL || 'superadmin@example.com';
       const rootPassword =
-        process.env.ROOT_PASSWORD || 'RootSecurePassword123!';
+        process.env.ROOT_PASSWORD || 'SuperSecurePassword123!';
 
       const root = await this.userRepository.findOne({
         where: { email: rootEmail },
